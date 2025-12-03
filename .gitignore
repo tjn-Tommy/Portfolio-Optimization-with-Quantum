@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.pytest_cache/
+*.zip
+*.safetensors
+.DS_Store
+*.pdf
+scripts/
+logs/
+checkpoints/
+wandb/
