@@ -46,6 +46,53 @@ def IsingCoeffs(n, n_per, sigma, mu, prices, B, lam, alpha):
                 J[i,j] = 0.0
     return h, J, C
 
+def IsingCoeffsWithSlack(n, n_per, Ks, sigma, mu, prices, B, lam, alpha):
+    N = n * n_per
+    C = np.zeros((n,N))     # conversion matrix
+    for i in range(n):
+        for p in range(n_per):
+            C[i, i*n_per + p] = 2**p
+    D = np.zeros((1,Ks))   # slack variable conversion
+    for k in range(Ks):
+        D[0,k] = 2**k
+
+    # J_x = lambda * C^T * sigma * C + alpha C^T * p' * p'^T * C
+    J_x = lam * C.T @ sigma @ C + alpha * np.outer(C.T @ prices, C.T @ prices)
+    # h_x = - (C^T * mu + 2 alpha B C^T * p')
+    h_x = - (C.T @ mu + 2 * alpha * B * (C.T @ prices))
+
+    # J_s = alpha * D.T * D
+    J_s = alpha * D.T @ D
+    # h_s = -2 * alpha * B * D.T
+    h_s = (-2 * alpha * B * D.T).flatten()
+    # J_xs = alpha * (C.T * p') * (D)
+    J_xs = alpha * np.outer(C.T @ prices, D[0,:])
+
+    # combine
+    J_full = np.zeros((N+Ks, N+Ks))
+    J_full[0:N, 0:N] = J_x
+    J_full[N:N+Ks, N:N+Ks] = J_s
+    J_full[0:N, N:N+Ks] = J_xs
+    J_full[N:N+Ks, 0:N] = J_xs.T
+    h_full = np.zeros(N+Ks)
+    h_full[0:N] = h_x
+    h_full[N:N+Ks] = h_s
+
+    # x -> (1+s)/2
+    J = 0.25 * J_full
+    h = 0.5 * h_full + 0.25 * np.sum(J_full, axis=1) + 0.25 * np.sum(J_full, axis=0)
+    C = 0.25 * np.sum(J_full) + 0.5 * np.sum(h_full) + alpha * B**2
+
+    # add diagonal terms of J to C
+    C += np.sum(np.diag(J))
+    J = J + J.T
+    # make J upper triangular
+    for i in range(N+Ks):
+        for j in range(N+Ks):
+            if i >= j:
+                J[i,j] = 0.0
+    return h, J, C
+
 def CalculateEnergy(state, h, J, C=0):
     energy = 0.0
     L = len(state)
@@ -60,6 +107,7 @@ def CalculateEnergy(state, h, J, C=0):
 def main():
     n = 5                # number of assets
     n_per = 2          # number of bits per asset
+    Ks = 5               # number of slack variables
 
     mu = np.array([0.12, 0.10, 0.15, 0.09, 0.11])      # expected return per share
     prices = np.array([10, 12, 8, 15, 7])             # cost per share
@@ -78,22 +126,45 @@ def main():
 
     # h, J, C = RandomIsingCoeffs(n * n_per)
     h, J, C = IsingCoeffs(n, n_per, Sigma, mu, prices, B, lam, alpha)
-    print(h.shape, J.shape, C)
+    # h, J, C = IsingCoeffsWithSlack(n, n_per, Ks, Sigma, mu, prices, B, lam, alpha)
+    # print(h)
+    # print(J)
+    # print(C)
     N = n * n_per
-    R = min(15, N)        # low-rank approximation rank
+    R = min(10, N)        # low-rank approximation rank
 
     print("=== Variational MPS ===")
     _, state = VariationalMPS(J, h, R=R, Dp=2, Ds=10, opt=1)
     energy = CalculateEnergy(state, h, J, C)
     print("Calculated energy from Variational MPS state:", energy)
 
-    print("\n=== Exact Diagonalization ===")
-    _, state = ExactDiagonalization(J, h)
-    energy = CalculateEnergy(state, h, J, C)
-    print("Calculated energy from Exact Diagonalization state:", energy)
+    # print("\n=== Exact Diagonalization ===")
+    # _, state = ExactDiagonalization(J, h)
+    # energy = CalculateEnergy(state, h, J, C)
+    # print("Calculated energy from Exact Diagonalization state:", energy)
 
-    print("\n=== Tensor Network MPO ===")
-    tenpy_dmrg(J, h)
+    # print("\n=== Tensor Network MPO ===")
+    # tenpy_dmrg(J, h)
+
+    # state_gt = [-1,1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,-1,-1]  # hypothetical ground truth state
+    # energy_gt = CalculateEnergy(state_gt, h, J, C)
+    # print("\nGround truth state energy:", energy_gt)
+    # x = np.array([2,0,2,0,2])
+
+    x = [0]*n
+    for i in range(n):
+        for p in range(n_per):
+            if state[i*n_per + p] == 1:
+                x[i] += 2**p
+    x = np.array(x)
+    print("Selected portfolio:", x, "investment:", x @ prices)
+    # slack = 0
+    # for k in range(Ks):
+    #     if state[N + k] == 1:
+    #         slack += 2**k
+    # print("Selected portfolio:", x, "slack:", slack)
+    E = lam * x @ Sigma @ x - mu @ x
+    print("Ground truth portfolio energy:", E)
 
 if __name__ == "__main__":
     main()
