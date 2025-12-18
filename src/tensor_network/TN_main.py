@@ -48,6 +48,7 @@ def IsingCoeffs(n, n_per, sigma, mu, prices, B, lam, alpha):
 
 def IsingCoeffsWithSlack(n, n_per, Ks, sigma, mu, prices, B, lam, alpha):
     N = n * n_per
+    price_rate = prices / B
     C = np.zeros((n,N))     # conversion matrix
     for i in range(n):
         for p in range(n_per):
@@ -57,16 +58,16 @@ def IsingCoeffsWithSlack(n, n_per, Ks, sigma, mu, prices, B, lam, alpha):
         D[0,k] = 2**k
 
     # J_x = lambda * C^T * sigma * C + alpha C^T * p' * p'^T * C
-    J_x = lam * C.T @ sigma @ C + alpha * np.outer(C.T @ prices, C.T @ prices)
+    J_x = lam * C.T @ sigma @ C + alpha * np.outer(C.T @ price_rate, C.T @ price_rate)
     # h_x = - (C^T * mu + 2 alpha B C^T * p')
-    h_x = - (C.T @ mu + 2 * alpha * B * (C.T @ prices))
+    h_x = - (C.T @ mu + 2 * alpha * (C.T @ price_rate))
 
     # J_s = alpha * D.T * D
-    J_s = alpha * D.T @ D
+    J_s = alpha * D.T @ D / (B**2)
     # h_s = -2 * alpha * B * D.T
-    h_s = (-2 * alpha * B * D.T).flatten()
+    h_s = (-2 * alpha * D.T / B).flatten()
     # J_xs = alpha * (C.T * p') * (D)
-    J_xs = alpha * np.outer(C.T @ prices, D[0,:])
+    J_xs = alpha * np.outer(C.T @ price_rate, D[0,:]) / B
 
     # combine
     J_full = np.zeros((N+Ks, N+Ks))
@@ -81,7 +82,7 @@ def IsingCoeffsWithSlack(n, n_per, Ks, sigma, mu, prices, B, lam, alpha):
     # x -> (1+s)/2
     J = 0.25 * J_full
     h = 0.5 * h_full + 0.25 * np.sum(J_full, axis=1) + 0.25 * np.sum(J_full, axis=0)
-    C = 0.25 * np.sum(J_full) + 0.5 * np.sum(h_full) + alpha * B**2
+    C = 0.25 * np.sum(J_full) + 0.5 * np.sum(h_full) + alpha
 
     # add diagonal terms of J to C
     C += np.sum(np.diag(J))
@@ -93,15 +94,8 @@ def IsingCoeffsWithSlack(n, n_per, Ks, sigma, mu, prices, B, lam, alpha):
                 J[i,j] = 0.0
     return h, J, C
 
-def CalculateEnergy(state, h, J, C=0):
-    energy = 0.0
-    L = len(state)
-    for i in range(L):
-        energy += h[i] * state[i]
-        for j in range(L):
-            if J[i, j] != 0:
-                energy += J[i, j] * state[i] * state[j]
-    energy += C
+def CalculateEnergy(state, h, J, Const=0):
+    energy = state @ J @ state + h @ state + Const
     return energy
 
 def main():
@@ -113,7 +107,7 @@ def main():
     prices = np.array([10, 12, 8, 15, 7])             # cost per share
     B = 50                                            # budget
     lam = 0.3                                        # risk aversion λ
-    alpha = 5.0                                        # penalty coefficient
+    alpha = 10.0                                        # penalty coefficient
 
     # Example positive semidefinite covariance matrix
     Sigma = np.array([
@@ -125,16 +119,16 @@ def main():
     ])
 
     # h, J, C = RandomIsingCoeffs(n * n_per)
-    h, J, C = IsingCoeffs(n, n_per, Sigma, mu, prices, B, lam, alpha)
-    # h, J, C = IsingCoeffsWithSlack(n, n_per, Ks, Sigma, mu, prices, B, lam, alpha)
+    # h, J, C = IsingCoeffs(n, n_per, Sigma, mu, prices, B, lam, alpha)
+    h, J, C = IsingCoeffsWithSlack(n, n_per, Ks, Sigma, mu, prices, B, lam, alpha)
     # print(h)
     # print(J)
     # print(C)
     N = n * n_per
-    R = min(10, N)        # low-rank approximation rank
+    R = min(15, N)        # low-rank approximation rank
 
     print("=== Variational MPS ===")
-    _, state = VariationalMPS(J, h, R=R, Dp=2, Ds=10, opt=1)
+    _, state = VariationalMPS(J, h, R=R, Dp=2, Ds=20, opt=1)
     energy = CalculateEnergy(state, h, J, C)
     print("Calculated energy from Variational MPS state:", energy)
 
@@ -165,6 +159,10 @@ def main():
     # print("Selected portfolio:", x, "slack:", slack)
     E = lam * x @ Sigma @ x - mu @ x
     print("Ground truth portfolio energy:", E)
+
+    x_gt = np.array([2,0,2,0,2])
+    E_gt = lam * x_gt @ Sigma @ x_gt - mu @ x_gt
+    print("Ground truth portfolio energy:", E_gt)
 
 if __name__ == "__main__":
     main()
