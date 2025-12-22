@@ -26,8 +26,8 @@ from src.benchmark.solvers import *
 #     upper_bound_for_all_stocks : Union[List[int],None]
 #
 # optimizer should return either
-# 1) a list of int
-# 2) None
+# 1) an np array
+# 2) None (optimization failure)
 # =================================================================================================================s
 
 config = BenchmarkConfig(
