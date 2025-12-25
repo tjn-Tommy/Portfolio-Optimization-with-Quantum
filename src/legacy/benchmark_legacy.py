@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import itertools
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
-from src.benchmark.dataset import StockDataset
+from data.dataset import StockDataset
 
 
 class BaseSolver():

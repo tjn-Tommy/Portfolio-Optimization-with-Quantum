@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 
-
 class StockDataset:
     def __init__(self, data_dir="data", stock_list=None):
         """
