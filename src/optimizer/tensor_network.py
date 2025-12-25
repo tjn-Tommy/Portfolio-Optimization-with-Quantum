@@ -1,0 +1,128 @@
+from typing import Callable, Optional, Any, Dict
+
+import numpy as np
+
+from optimizer.base import BaseOptimizer
+from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
+from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
+from tensor_network.ED import ExactDiagonalization
+from tensor_network.VariationalMPS import VariationalMPS
+
+
+class TensorNetworkOptimizer(BaseOptimizer):
+    def __init__(
+        self,
+        risk_aversion: float,
+        lam: float,
+        alpha: float,
+        bits_per_asset: int,
+        bits_slack: int,
+        method: str = "variational_mps",
+        mps_rank: int = 10,
+        mps_bond_dim: int = 6,
+        mps_opt: int = 1,
+    ):
+        super().__init__(risk_aversion, lam)
+        self.alpha = alpha
+        self.bits_per_asset = bits_per_asset
+        self.bits_slack = bits_slack
+        self.method = method
+        self.mps_rank = mps_rank
+        self.mps_bond_dim = mps_bond_dim
+        self.mps_opt = mps_opt
+        self.num_spins = 0
+
+    @classmethod
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "TensorNetworkOptimizer":
+        return cls(
+            risk_aversion=risk_aversion,
+            lam=lam,
+            alpha=cfg["alpha"],
+            bits_per_asset=cfg["bits_per_asset"],
+            bits_slack=cfg["bits_slack"],
+            method=cfg.get("method", "variational_mps"),
+            mps_rank=cfg.get("mps_rank", 10),
+            mps_bond_dim=cfg.get("mps_bond_dim", 6),
+            mps_opt=cfg.get("mps_opt", 1),
+        )
+
+    def qubo_factor(
+        self,
+        n: int,
+        mu: np.ndarray,
+        sigma: np.ndarray,
+        prices: np.ndarray,
+        n_spins: int,
+        budget: float,
+    ):
+        return qubo_factor_optimized(
+            n=n,
+            mu=mu,
+            sigma=sigma,
+            prices=prices,
+            n_spins=n_spins,
+            budget=budget,
+            bits_per_asset=self.bits_per_asset,
+            bits_slack=self.bits_slack,
+            lam=self.lam,
+            alpha=self.alpha,
+        )
+
+    def get_ising_coeffs(self, Q: np.ndarray, L: np.ndarray, constant: float):
+        return get_ising_coeffs_optimized(Q, L, constant)
+
+    @property
+    def optimizer(self) -> Callable:
+        return self.optimize
+
+    def _spins_to_asset_counts(self, spins: np.ndarray, n: int) -> np.ndarray:
+        asset_counts = []
+        for i in range(n):
+            count = 0
+            for p in range(self.bits_per_asset):
+                idx = i * self.bits_per_asset + p
+                if spins[idx] == -1:
+                    count += 2**p
+            asset_counts.append(count)
+        return np.array(asset_counts, dtype=int)
+
+    def optimize(
+        self,
+        mu: np.ndarray,
+        prices: np.ndarray,
+        sigma: np.ndarray,
+        budget: float,
+        method: Optional[str] = None,
+        mps_rank: Optional[int] = None,
+        mps_bond_dim: Optional[int] = None,
+        mps_opt: Optional[int] = None,
+    ) -> Optional[np.ndarray]:
+        n = len(mu)
+        self.num_spins = n * self.bits_per_asset + self.bits_slack
+        Q, L, constant = self.qubo_factor(
+            n=n,
+            mu=mu,
+            sigma=sigma,
+            prices=prices,
+            n_spins=self.num_spins,
+            budget=budget,
+        )
+        h, J, _ = self.get_ising_coeffs(Q, L, constant)
+
+        chosen_method = (method or self.method).lower()
+        if chosen_method == "variational_mps":
+            _, spins = VariationalMPS(
+                J,
+                h,
+                R=mps_rank if mps_rank is not None else self.mps_rank,
+                Dp=2,
+                Ds=mps_bond_dim if mps_bond_dim is not None else self.mps_bond_dim,
+                opt=mps_opt if mps_opt is not None else self.mps_opt,
+            )
+        elif chosen_method == "exact":
+            _, spins = ExactDiagonalization(J, h)
+        else:
+            raise ValueError(f"Unsupported tensor network method: {chosen_method}")
+
+        spins = np.array(spins, dtype=int)
+        return self._spins_to_asset_counts(spins, n)

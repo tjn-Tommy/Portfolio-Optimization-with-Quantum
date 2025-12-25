@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Any, Dict, Optional
 import numpy as np
 import pandas as pd
 from pyscipopt import Model, quicksum
@@ -8,10 +8,10 @@ import os
 from contextlib import redirect_stdout
 import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit, transpile
-from qiskit_aer import AerSimulator
 from optimizer.base import BaseOptimizer
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
+from optimizer.utils.noise_utils import build_aer_simulator
 
 class QuantumAnnealingOptimizer(BaseOptimizer):
     def __init__(
@@ -24,6 +24,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         time: float = 10,
         steps: int = 100,
         traverse: float = 1.0,
+        noise_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(risk_aversion, lam)
         self.alpha = alpha
@@ -32,6 +33,22 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self.time = time
         self.steps = steps
         self.traverse = traverse
+        self.noise_config = noise_config
+        self.backend = build_aer_simulator(noise_config)
+
+    @classmethod
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "QuantumAnnealingOptimizer":
+        return cls(
+            risk_aversion=risk_aversion,
+            lam=lam,
+            alpha=cfg["alpha"],
+            bits_per_asset=cfg["bits_per_asset"],
+            bits_slack=cfg["bits_slack"],
+            time=cfg.get("time", 10),
+            steps=cfg.get("steps", 100),
+            traverse=cfg.get("traverse", 1.0),
+            noise_config=cfg.get("noise"),
+        )
 
     def qubo_factor(self, 
                     n: int, 
@@ -129,8 +146,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
 
         qc = trotter_annealing(T=self.time, M=self.steps, B=self.traverse) 
         qc.measure_all()
-        sim = AerSimulator()
-        result = sim.run(transpile(qc, sim), shots=1000).result()
+        result = self.backend.run(transpile(qc, self.backend), shots=1000).result()
         counts = result.get_counts()
 
         # Compute energies for each measurement

@@ -1,0 +1,59 @@
+data:
+  start_date: "2024-12-01"
+  max_iter: 10
+  stock_list:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - META
+  history_window: 100
+  data_dir: "./data"
+  result_dir: "./result"
+
+problem:
+  start_budget: 1_000
+  risk_aversion: 0.5
+  lam: 0.1
+
+solvers:
+  - quantum_annealing
+  - qaoa
+  - tensor_network
+  - scip
+
+quantum_annealing:
+  alpha: 5.0
+  bits_per_asset: 3
+  bits_slack: 5
+  time: 10
+  steps: 100
+  traverse: 1.0
+  noise: null
+
+qaoa:
+  alpha: 5.0
+  bits_per_asset: 3
+  bits_slack: 5
+  p: 1
+  shots: 1000
+  n_trials: 1
+  maxiter: 100
+  grad_delta: 0.01
+  init_spread: 0.0
+  seed: null
+  use_gradient: true
+  noise: null
+
+tensor_network:
+  alpha: 5.0
+  bits_per_asset: 3
+  bits_slack: 5
+  method: "variational_mps"
+  mps_rank: 10
+  mps_bond_dim: 6
+  mps_opt: 1
+
+scip:
+  upper_bounds: 8
+  suppress_output: true

@@ -14,6 +14,10 @@ class BaseOptimizer(ABC):
         self.risk_aversion = risk_aversion
         self.lam = lam
 
+    @classmethod
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "BaseOptimizer":
+        raise NotImplementedError("init method must be implemented in subclass.")
+
     @abstractmethod
     def optimize(self,
                  mu: np.ndarray,
@@ -23,3 +27,17 @@ class BaseOptimizer(ABC):
                  **args,
                  ) -> np.ndarray:
         pass
+
+    @property
+    def optimizer(self) -> Callable:
+        return self.optimize
+
+    def __call__(
+        self,
+        mu: np.ndarray,
+        prices: np.ndarray,
+        sigma: np.ndarray,
+        budget: float,
+        **args,
+    ) -> np.ndarray:
+        return self.optimize(mu, prices, sigma, budget, **args)

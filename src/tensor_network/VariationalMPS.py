@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 import scipy.sparse.linalg as LAs
-import Sub180221 as Sub
+from . import Sub180221 as Sub
 import copy
 
 def GetApproxMPO(J, h, R):
