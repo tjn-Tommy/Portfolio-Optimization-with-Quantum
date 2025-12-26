@@ -68,3 +68,25 @@ def get_ising_coeffs(
         h -= 0.25 * sym.sum(axis=1)
 
     return h, J, C
+
+def normalize_ising_coeffs(
+    h: np.ndarray,
+    J: np.ndarray,
+    C: float
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """Normalize Ising coefficients to prevent large values."""
+    max_strength = np.max([np.max(np.abs(J)), np.max(np.abs(h))])
+    
+    # Prevent division by zero
+    if max_strength == 0:
+        scale_factor = 1.0
+    else:
+        # Normalize the maximum coefficient to 1.0 (or a similar scale)
+        scale_factor = 1.0 / max_strength
+
+    # Apply normalization
+    J_scaled = J * scale_factor
+    h_scaled = h * scale_factor
+    C_scaled = C * scale_factor
+
+    return h_scaled, J_scaled, C_scaled

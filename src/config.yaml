@@ -5,22 +5,22 @@ data:
     - AAPL
     - MSFT
     - GOOGL
-    - AMZN
-    - META
+    # - AMZN
+    # - META
   history_window: 100
   data_dir: "./data"
   result_dir: "./result"
 
 problem:
-  start_budget: 1_000
+  start_budget: 500
   risk_aversion: 0.5
   lam: 0.1
 
 solvers:
   - quantum_annealing
-  - qaoa
-  - tensor_network
-  - scip
+  # - qaoa
+  # - tensor_network
+  # - scip
 
 quantum_annealing:
   alpha: 5.0
@@ -29,12 +29,16 @@ quantum_annealing:
   time: 10
   steps: 100
   traverse: 1.0
-  noise: null
+  # noise:
+  #   type: depolarizing
+  #   p1: 0.001
+  #   p2: 0.01
+  #   readout: 0.02
 
 qaoa:
   alpha: 5.0
   bits_per_asset: 3
-  bits_slack: 5
+  bits_slack: 8
   p: 1
   shots: 1000
   n_trials: 1
@@ -48,8 +52,7 @@ qaoa:
 tensor_network:
   alpha: 5.0
   bits_per_asset: 3
-  bits_slack: 5
-  # method: "dmrg"
+  bits_slack: 8
   method: "variational_mps"
   mps_rank: 10
   mps_bond_dim: 6

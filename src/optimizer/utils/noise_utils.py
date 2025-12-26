@@ -37,12 +37,13 @@ def build_noise_model(config: Optional[Dict[str, Any]]) -> Optional[NoiseModel]:
         t2 = float(config["t2"])
         time_1q = float(config.get("time_1q", 50.0))
         time_2q = float(config.get("time_2q", 150.0))
-        noise_model.add_all_qubit_quantum_error(
-            thermal_relaxation_error(t1, t2, time_1q), gates_1q
-        )
-        noise_model.add_all_qubit_quantum_error(
-            thermal_relaxation_error(t1, t2, time_2q), gates_2q
-        )
+        error_1q = thermal_relaxation_error(t1, t2, time_1q)
+        noise_model.add_all_qubit_quantum_error(error_1q, gates_1q)
+        if gates_2q:
+            error_2q = thermal_relaxation_error(t1, t2, time_2q).tensor(
+                thermal_relaxation_error(t1, t2, time_2q)
+            )
+            noise_model.add_all_qubit_quantum_error(error_2q, gates_2q)
     else:
         raise ValueError(f"Unsupported noise type: {noise_type}")
 
