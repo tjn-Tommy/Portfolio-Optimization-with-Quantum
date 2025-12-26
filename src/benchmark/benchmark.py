@@ -120,6 +120,7 @@ class Benchmark():
         result_dir = self.benchmark_config.result_dir or "result"
         os.makedirs(result_dir, exist_ok=True)
 
+        # plot budget change
         plt.figure(figsize=(12, 6))
         has_series = False
         for result in results:
@@ -143,6 +144,33 @@ class Benchmark():
         plt.legend()
         plt.tight_layout()
         filename = f"compare_{timestamp}.png"
+        plt.savefig(os.path.join(result_dir, filename), dpi=600)
+        plt.close()
+
+        # plot objective change
+        plt.figure(figsize=(12, 6))
+        has_series = False
+        for result in results:
+            name = result.get("name") or "optimizer"
+            dates = result.get("date_history", [])
+            objectives = result.get("objective", [])
+            if not dates:
+                continue
+            has_series = True
+            plt.plot(dates, objectives, marker="o", linestyle="-", label=name)
+
+        if not has_series:
+            print("No objective history to plot.")
+            return
+
+        plt.title("Objective Evolution Comparison")
+        plt.xlabel("Date")
+        plt.ylabel("Objective")
+        plt.grid(True)
+        plt.xticks(rotation=45)
+        plt.legend()
+        plt.tight_layout()
+        filename = f"compare_objective_{timestamp}.png"
         plt.savefig(os.path.join(result_dir, filename), dpi=600)
         plt.close()
 

@@ -51,7 +51,7 @@ def tenpy_dmrg(J,h):
     psi = MPS.from_random_unitary_evolution(sites=model.lat.mps_sites(), chi=50, p_state=["up"] * L)
 
     # result = dmrg(psi, model, dmrg_params)
-    engine = SingleSiteDMRGEngine(psi, model, dmrg_params)
+    engine = TwoSiteDMRGEngine(psi, model, dmrg_params)
     E, psi = engine.run()
     state = np.round(psi.expectation_value('Sz') * 2).astype(int).tolist()  # convert to -1,1
     # print("Ground state energy =", E)
