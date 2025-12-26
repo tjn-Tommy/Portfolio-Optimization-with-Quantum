@@ -41,6 +41,7 @@ def GetApproxMPO(J, h, R):
 
 def InitMps(Ns,Dp,Ds,seed=None):
     if seed is not None:
+        # print('seed:',seed)
         np.random.seed(seed)
     T = [None]*Ns
     for i in range(Ns):
@@ -78,9 +79,12 @@ def OptTSite1(Mpo,HL,HR,T):
 
     A = Sub.NCon([HL,Mpo,HR],[[-1,1,-4],[1,-5,2,-2],[-6,2,-3]])
     A = Sub.Group(A,[[0,1,2],[3,4,5]])
+    A = 0.5 * (A + A.conj().T)
     A += 1e-8 * np.eye(A.shape[0])  # regularization to avoid singular matrix
-    Eig, V = LAs.eigsh(-A, k=1, which='LA')
-    Eig = -Eig
+    # print(A.shape)
+    w, v = LA.eigh(A)   # A 必须是 Hermitian
+    Eig = w[0]                # 最小特征值
+    V = v[:, 0]               # 对应特征向量
     T = np.reshape(V,DT)
     # print('Eig',Eig)
         

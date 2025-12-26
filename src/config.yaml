@@ -5,8 +5,8 @@ data:
     - AAPL
     - MSFT
     - GOOGL
-    # - AMZN
-    # - META
+    - AMZN
+    - META
   history_window: 100
   data_dir: "./data"
   result_dir: "./result"
@@ -17,10 +17,10 @@ problem:
   lam: 0.1
 
 solvers:
-  - quantum_annealing
+  # - quantum_annealing
   # - qaoa
-  # - tensor_network
-  # - scip
+  - tensor_network
+  - scip
 
 quantum_annealing:
   alpha: 5.0
