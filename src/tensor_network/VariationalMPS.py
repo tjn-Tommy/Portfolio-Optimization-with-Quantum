@@ -1,7 +1,8 @@
 import numpy as np
 import numpy.linalg as LA
 import scipy.sparse.linalg as LAs
-from . import Sub180221 as Sub
+from tensor_network import Sub180221 as Sub
+# import Sub180221 as Sub
 import copy
 
 def GetApproxMPO(J, h, R):
@@ -38,7 +39,9 @@ def GetApproxMPO(J, h, R):
         W.append(Wp)
     return W
 
-def InitMps(Ns,Dp,Ds):
+def InitMps(Ns,Dp,Ds,seed=None):
+    if seed is not None:
+        np.random.seed(seed)
     T = [None]*Ns
     for i in range(Ns):
         Dl = min(Dp**i,Dp**(Ns-i),Ds)
@@ -75,7 +78,9 @@ def OptTSite1(Mpo,HL,HR,T):
 
     A = Sub.NCon([HL,Mpo,HR],[[-1,1,-4],[1,-5,2,-2],[-6,2,-3]])
     A = Sub.Group(A,[[0,1,2],[3,4,5]])
-    Eig,V = LAs.eigsh(A,k=1,which='SA')
+    A += 1e-8 * np.eye(A.shape[0])  # regularization to avoid singular matrix
+    Eig, V = LAs.eigsh(-A, k=1, which='LA')
+    Eig = -Eig
     T = np.reshape(V,DT)
     # print('Eig',Eig)
         
@@ -86,7 +91,8 @@ def OptT1(Mpo_list,HL,HR,T):
     Eng0 = np.zeros(Ns)
     Eng1 = np.zeros(Ns)
     
-    for r in range(1000):
+    converge = False
+    for r in range(100):
         # print(r)
     
         for i in range(Ns-1):
@@ -108,14 +114,15 @@ def OptT1(Mpo_list,HL,HR,T):
         
         # print(Eng1)
         if abs(Eng1[1]-Eng0[1]) < 1.0e-10:
-            print(f'Converged after {r} sweeps.')
+            # print(f'Converged after {r} sweeps.')
+            converge = True
             break
         Eng0 = copy.copy(Eng1)
     
     # print("Energy per site:", Eng1 / float(Ns))
-    print("Ground Energy:", np.mean(Eng1))
+    # print("Ground Energy:", np.mean(Eng1))
     
-    return T
+    return T, converge
 
 def OptSite2(Mpo,HL,HR,T1,T2):
     DT = np.shape(T1)
@@ -136,7 +143,9 @@ def OptSite2(Mpo,HL,HR,T1,T2):
                  [[-1, 1, -5], [1, -6, 2, -2], [2, -7, 3, -3], [-8, 3, -4]])
     A = Sub.Group(A, [[0, 1, 2, 3], [4, 5, 6, 7]])
 
-    Eig, V = LAs.eigsh(A, k=1, which='SA')
+    A += 1e-8 * np.eye(A.shape[0])  # regularization to avoid singular matrix
+    Eig, V = LAs.eigsh(-A, k=1, which='LA')
+    Eig = -Eig
     T_combined = np.reshape(V, DT_combined)
 
     # Split back into two tensors, with truncation
@@ -162,7 +171,8 @@ def OptT2(Mpo_list, HL, HR, T):
     Eng0 = np.zeros(Ns)
     Eng1 = np.zeros(Ns)
 
-    for r in range(1000):
+    converge = False
+    for r in range(100):
         # print(r)
         for i in range(Ns - 1):
             Mpo = Mpo_list[i]
@@ -184,13 +194,14 @@ def OptT2(Mpo_list, HL, HR, T):
         # Check convergence
         if abs(Eng1[0] - Eng0[0]) < 1.0e-10:
             print(f'Converged after {r} sweeps.')
+            converge = True
             break
         Eng0 = copy.copy(Eng1)
 
     print("Energy per site:", Eng1 / float(Ns))
     print("Energy average:", np.mean(Eng1) / float(Ns))
 
-    return T
+    return T, converge
 
 def ExpectationValue(op, pos, Ns, T):
     '''
@@ -218,22 +229,29 @@ def ExpectationValue(op, pos, Ns, T):
     # print(L)
     return ans
 
-def VariationalMPS(J, h, R=10, Dp=2, Ds=6, opt=1):
+def VariationalMPS(J, h, R=10, Dp=2, Ds=6, opt=1, seed=None, max_trial=100):
     Ns = J.shape[0]
     assert len(h) == J.shape[1] == Ns
 
-    Mpo_list = GetApproxMPO(J, h, R)
-    T = InitMps(Ns, Dp, Ds)
-    HL, HR = InitH(Mpo_list, T)
-    if opt == 1:
-        T = OptT1(Mpo_list, HL, HR, T)
-    elif opt == 2:
-        T = OptT2(Mpo_list, HL, HR, T)
+    converged = False
+    for trial in range(max_trial):
+        # print(f'Trial {trial+1}/{max_trial}')
+        Mpo_list = GetApproxMPO(J, h, R)
+        T = InitMps(Ns, Dp, Ds, seed=seed)
+        HL, HR = InitH(Mpo_list, T)
+        if opt == 1:
+            T, converged = OptT1(Mpo_list, HL, HR, T)
+        elif opt == 2:
+            T, converged = OptT2(Mpo_list, HL, HR, T)
+        if converged:
+            break
+        if seed is not None:
+            seed += 1  # change seed for next trial
 
     state = []
     for i in range(Ns):
         state.append(ExpectationValue(np.array([[1.,0.],[0.,-1.]]), i, Ns, T))
     state_int = [int(np.round(s)) for s in state]
-    print("State:", state_int)
+    # print("State:", state_int)
     
     return T, state_int

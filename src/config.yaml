@@ -1,6 +1,6 @@
 data:
-  start_date: "2024-12-01"
-  max_iter: 10
+  start_date: "2024-06-01"
+  max_iter: 30
   stock_list:
     - AAPL
     - MSFT
@@ -49,10 +49,12 @@ tensor_network:
   alpha: 5.0
   bits_per_asset: 3
   bits_slack: 5
+  # method: "dmrg"
   method: "variational_mps"
   mps_rank: 10
   mps_bond_dim: 6
   mps_opt: 1
+  mps_seed: 1
 
 scip:
   upper_bounds: 8

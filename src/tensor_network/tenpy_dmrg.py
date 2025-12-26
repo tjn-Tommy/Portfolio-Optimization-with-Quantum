@@ -3,9 +3,13 @@ from tenpy.networks.site import SpinHalfSite
 from tenpy.networks.mps import MPS
 from tenpy.models.lattice import TrivialLattice
 from tenpy.models.model import CouplingMPOModel
-from tenpy.algorithms.dmrg import run as dmrg
 from tenpy.algorithms.exact_diag import get_numpy_Hamiltonian
-
+from tenpy.algorithms.dmrg import SingleSiteDMRGEngine, TwoSiteDMRGEngine
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="unit_cell_width is a new argument for MPS"
+)
 
 class MyModel(CouplingMPOModel):
     def __init__(self, model_params):
@@ -28,9 +32,8 @@ class MyModel(CouplingMPOModel):
                     self.add_coupling_term(4*J[i,j], i, j, 'Sz', 'Sz') # s_z s_z = 1/4 sigma_z sigma_z
          
 def tenpy_dmrg(J,h):
-    site = SpinHalfSite(conserve=None)
     L = J.shape[0]
-    psi = MPS.from_product_state([site] * L, ["up"] * L)
+    # psi = MPS.from_product_state([site] * L, ["up"] * L)
     model_params = {
         "L": L,
         "J": J,
@@ -39,18 +42,21 @@ def tenpy_dmrg(J,h):
     dmrg_params = {
         "mixer": True,
         'max_E_err': 1.e-10,
+        "max_N_sites_per_ring": 50,
         "mixer_params": {"amplitude": 1e-2, "decay": 1.5, "disable_after": 10},
         "trunc_params": {"chi_max": 50, "svd_min": 1e-10},
         "max_sweeps": 10,
     }
     model = MyModel(model_params)
+    psi = MPS.from_random_unitary_evolution(sites=model.lat.mps_sites(), chi=50, p_state=["up"] * L)
 
-    result = dmrg(psi, model, dmrg_params)
-    # print(result.keys())
-    print("Ground state energy =", result['E'])
-    # print(result['shelve'])
-    # print(result['bond_statistics'].keys())
-    # print(result['sweep_statistics'].keys())
+    # result = dmrg(psi, model, dmrg_params)
+    engine = SingleSiteDMRGEngine(psi, model, dmrg_params)
+    E, psi = engine.run()
+    state = np.round(psi.expectation_value('Sz') * 2).astype(int).tolist()  # convert to -1,1
+    # print("Ground state energy =", E)
+    # print("Ground state Sz values =", state)
+    return state
 
 if __name__ == "__main__":
     # L = 6                       # system size

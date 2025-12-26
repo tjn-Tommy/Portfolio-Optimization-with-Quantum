@@ -7,6 +7,7 @@ from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from tensor_network.ED import ExactDiagonalization
 from tensor_network.VariationalMPS import VariationalMPS
+from tensor_network.tenpy_dmrg import tenpy_dmrg
 
 
 class TensorNetworkOptimizer(BaseOptimizer):
@@ -21,6 +22,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         mps_rank: int = 10,
         mps_bond_dim: int = 6,
         mps_opt: int = 1,
+        mps_seed: int = 1,
     ):
         super().__init__(risk_aversion, lam)
         self.alpha = alpha
@@ -30,6 +32,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         self.mps_rank = mps_rank
         self.mps_bond_dim = mps_bond_dim
         self.mps_opt = mps_opt
+        self.mps_seed = mps_seed
         self.num_spins = 0
 
     @classmethod
@@ -96,6 +99,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         mps_rank: Optional[int] = None,
         mps_bond_dim: Optional[int] = None,
         mps_opt: Optional[int] = None,
+        mps_seed: Optional[int] = None,
     ) -> Optional[np.ndarray]:
         n = len(mu)
         self.num_spins = n * self.bits_per_asset + self.bits_slack
@@ -118,7 +122,10 @@ class TensorNetworkOptimizer(BaseOptimizer):
                 Dp=2,
                 Ds=mps_bond_dim if mps_bond_dim is not None else self.mps_bond_dim,
                 opt=mps_opt if mps_opt is not None else self.mps_opt,
+                seed=mps_seed if mps_seed is not None else self.mps_seed,
             )
+        elif chosen_method == "dmrg":
+            spins = tenpy_dmrg(J, h)
         elif chosen_method == "exact":
             _, spins = ExactDiagonalization(J, h)
         else:

@@ -128,7 +128,7 @@ def main():
     R = min(15, N)        # low-rank approximation rank
 
     print("=== Variational MPS ===")
-    _, state = VariationalMPS(J, h, R=R, Dp=2, Ds=20, opt=1)
+    _, state = VariationalMPS(J, h, R=R, Dp=2, Ds=20, opt=1, seed=1)
     energy = CalculateEnergy(state, h, J, C)
     print("Calculated energy from Variational MPS state:", energy)
 
@@ -137,18 +137,25 @@ def main():
     # energy = CalculateEnergy(state, h, J, C)
     # print("Calculated energy from Exact Diagonalization state:", energy)
 
-    # print("\n=== Tensor Network MPO ===")
-    # tenpy_dmrg(J, h)
+    print("\n=== Tensor Network MPO ===")
+    state2 = tenpy_dmrg(J, h)
+    energy2 = CalculateEnergy(state2, h, J, C)
+    print("Calculated energy from Tensor Network MPO state:", energy2)
+
+    # print("\n=== Tensor Network VUMPS ===")
+    # energy3, state3 = tenpy_vumps(J, h)
+    # # print("Calculated energy from Tensor Network VUMPS state:", energy3)
 
     # state_gt = [-1,1,-1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,-1,-1]  # hypothetical ground truth state
     # energy_gt = CalculateEnergy(state_gt, h, J, C)
     # print("\nGround truth state energy:", energy_gt)
     # x = np.array([2,0,2,0,2])
 
+    print("\n======")
     x = [0]*n
     for i in range(n):
         for p in range(n_per):
-            if state[i*n_per + p] == 1:
+            if state2[i*n_per + p] == 1:
                 x[i] += 2**p
     x = np.array(x)
     print("Selected portfolio:", x, "investment:", x @ prices)
