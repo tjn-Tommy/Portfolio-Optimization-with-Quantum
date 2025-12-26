@@ -158,6 +158,8 @@ class Benchmark():
 
         budget_history = [budget]
         date_history = [current_date]
+        objective = [0.0]
+        best_xs = []
 
         current_date = self.dataset.next_date()
         iterations = 0
@@ -172,7 +174,11 @@ class Benchmark():
                 break
 
             best_x = optimizer(mu, open_prices, sigma, budget, **kwargs)
-            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}")
+            best_xs.append(best_x)
+            # Calculate the objective:
+            objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x))
+
+            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, budget: {budget:.8f}")
 
             if best_x is None:
                 print(f"{prefix}Optimization failed for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
@@ -200,6 +206,8 @@ class Benchmark():
             "name": name,
             "date_history": date_history,
             "budget_history": budget_history,
+            "objective": objective,
+            "best_xs": best_xs,
         }
 
     def run(
