@@ -15,7 +15,6 @@ from optimizer.utils.noise_utils import build_aer_simulator
 class QuantumAnnealingOptimizer(BaseOptimizer):
     def __init__(
         self,
-        risk_aversion: float,
         lam: float,
         alpha: float,
         bits_per_asset: int,
@@ -25,7 +24,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         traverse: float = 1.0,
         noise_config: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(lam)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
@@ -34,6 +33,24 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self.traverse = traverse
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
+        try:
+            # 1. 强制使用 GPU
+            self.backend.set_options(device='GPU')
+            
+            # 2. 关键：设置精度为单精度
+            # "single": complex64 (对应 float32)
+            # "double": complex128 (对应 float64) - 默认值
+            self.backend.set_options(precision='single',
+                                     batched_shots_gpu=True,
+                                     max_shot_size=1000,
+                                    #  cuStateVec_enable=True,
+                                     batched_shots_gpu_max_qubits=22,
+                                     ) 
+            
+            print("✅ GPU Acceleration enabled with Single Precision.")
+        except Exception as e:
+            print(f"⚠️ GPU setup failed, falling back to CPU: {e}")
+            self.backend.set_options(device='CPU')
 
         # === 缓存变量 ===
         self._cached_circuit: Optional[QuantumCircuit] = None
@@ -44,9 +61,8 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self._J_param_map: Dict[Tuple[int, int], int] = {}
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "QuantumAnnealingOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float) -> "QuantumAnnealingOptimizer":
         return cls(
-            risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
             bits_per_asset=cfg["bits_per_asset"],

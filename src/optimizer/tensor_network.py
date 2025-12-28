@@ -13,7 +13,6 @@ from tensor_network.tenpy_dmrg import tenpy_dmrg
 class TensorNetworkOptimizer(BaseOptimizer):
     def __init__(
         self,
-        risk_aversion: float,
         lam: float,
         alpha: float,
         bits_per_asset: int,
@@ -24,7 +23,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         mps_opt: int = 1,
         mps_seed: int = 1,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(lam)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
@@ -36,9 +35,8 @@ class TensorNetworkOptimizer(BaseOptimizer):
         self.num_spins = 0
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "TensorNetworkOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float) -> "TensorNetworkOptimizer":
         return cls(
-            risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
             bits_per_asset=cfg["bits_per_asset"],
