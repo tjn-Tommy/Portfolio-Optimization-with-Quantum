@@ -1,24 +1,24 @@
 data:
   start_date: "2024-08-01"
-  max_iter: 3
+  max_iter: 30
   stock_list:
     - AAPL
     - MSFT
     - GOOGL
-    - AMZN
-    - META
+    # - AMZN
+    # - META
   history_window: 100
   data_dir: "./data"
   result_dir: "./result"
 
 problem:
-  start_budget: 500
+  start_budget: 1000
   lam: 0.1
   beta: 0.001
 
 solvers:
-  # - tensor_network
-  # - scip
+  - tensor_network
+  - scip
   - quantum_annealing
   - qaoa
 
@@ -29,7 +29,7 @@ quantum_annealing:
   time: 10
   steps: 100
   traverse: 1.0
-  transact_opt: "quadratic"
+  transact_opt: "exact"
   # noise:
   #   type: depolarizing
   #   p1: 0.001
@@ -41,7 +41,7 @@ qaoa:
   alpha: 5.0
   bits_per_asset: 3
   bits_slack: 8
-  transact_opt: "quadratic"
+  transact_opt: "exact"
   p: 1
   shots: 1000
   n_trials: 1
@@ -57,7 +57,7 @@ tensor_network:
   alpha: 5.0
   bits_per_asset: 3
   bits_slack: 8
-  transact_opt: "quadratic"
+  transact_opt: "exact"
   method: "dmrg"
   mps_rank: 10
   mps_bond_dim: 20

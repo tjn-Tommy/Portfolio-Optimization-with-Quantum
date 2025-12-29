@@ -5,6 +5,8 @@ import numpy as np
 from optimizer.base import BaseOptimizer
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
+from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_optimized
+from optimizer.utils.qubo_utils import spins_to_asset_counts
 from tensor_network.ED import ExactDiagonalization
 from tensor_network.VariationalMPS import VariationalMPS
 from tensor_network.tenpy_dmrg import tenpy_dmrg
@@ -80,21 +82,37 @@ class TensorNetworkOptimizer(BaseOptimizer):
 
     def get_ising_coeffs(self, Q: np.ndarray, L: np.ndarray, constant: float):
         return get_ising_coeffs_optimized(Q, L, constant)
+    
+    def compute_num_spins(self,
+                          n_assets: int,
+                          x0: np.ndarray = None
+    ):
+        return compute_num_spins_optimized(
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_slack=self.bits_slack,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
+    
+    def _spins_to_asset_counts(self,
+               spins: np.ndarray,
+               n_assets: int,
+               x0: np.ndarray = None
+    ):
+        return spins_to_asset_counts(
+            spins=spins,
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_plus=self.bits_plus,
+            bits_minus=self.bits_minus,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
 
     @property
     def optimizer(self) -> Callable:
         return self.optimize
-
-    def _spins_to_asset_counts(self, spins: np.ndarray, n: int) -> np.ndarray:
-        asset_counts = []
-        for i in range(n):
-            count = 0
-            for p in range(self.bits_per_asset):
-                idx = i * self.bits_per_asset + p
-                if spins[idx] == -1:
-                    count += 2**p
-            asset_counts.append(count)
-        return np.array(asset_counts, dtype=int)
 
     def optimize(
         self,
@@ -110,7 +128,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         mps_seed: Optional[int] = None,
     ) -> Optional[np.ndarray]:
         n = len(mu)
-        self.num_spins = n * self.bits_per_asset + self.bits_slack
+        self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         Q, L, constant = self.qubo_factor(
             n=n,
             mu=mu,
@@ -141,4 +159,4 @@ class TensorNetworkOptimizer(BaseOptimizer):
             raise ValueError(f"Unsupported tensor network method: {chosen_method}")
 
         spins = np.array(spins, dtype=int)
-        return self._spins_to_asset_counts(spins, n)
+        return self._spins_to_asset_counts(spins, n, x0)

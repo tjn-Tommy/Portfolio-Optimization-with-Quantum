@@ -16,13 +16,7 @@ def main(config_path: Optional[str] = None) -> None:
     optimizers = build_optimizers(config)
 
     benchmark = Benchmark(benchmark_config)
-    results = benchmark.run(optimizers)
-    results_dir = benchmark_config.result_dir or "./results"
-    save_path = Path(results_dir) / "benchmark_results.json"
-    with open(save_path, "w") as f:
-        json.dump(results, f, indent=4, default=str)
-    print(f"Benchmark results saved to {save_path}")
-
+    benchmark.run(optimizers)
 
 def parse_args():
     parser = argparse.ArgumentParser()

@@ -1,6 +1,8 @@
 from typing import Optional, Union, List, Callable, Sequence, Tuple, Dict, Any
 from dataclasses import dataclass
 import os
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -265,5 +267,12 @@ class Benchmark():
 
         if len(results) > 1:
             self._plot_compare(results, timestamp)
+
+        result_dir = self.benchmark_config.result_dir or "result"
+        filename = f"benchmark_results_{timestamp}.json"
+        save_path = Path(result_dir) / filename
+        with open(save_path, "w") as f:
+            json.dump(results, f, indent=4, default=str)
+        print(f"Benchmark results saved to {save_path}")
 
         return results

@@ -6,6 +6,8 @@ from qiskit.circuit import ParameterVector
 from scipy.optimize import minimize
 from qiskit.quantum_info import SparsePauliOp
 from optimizer.base import BaseOptimizer
+from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_optimized
+from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from optimizer.utils.noise_utils import build_aer_simulator
@@ -107,6 +109,33 @@ class QAOAOptimizer(BaseOptimizer):
 
     def get_ising_coeffs(self, Q: np.ndarray, L: np.ndarray, constant: float):
         return get_ising_coeffs_optimized(Q, L, constant)
+    
+    def compute_num_spins(self,
+                          n_assets: int,
+                          x0: np.ndarray = None
+    ):
+        return compute_num_spins_optimized(
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_slack=self.bits_slack,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
+    
+    def _spins_to_asset_counts(self,
+               spins: np.ndarray,
+               n_assets: int,
+               x0: np.ndarray = None
+    ):
+        return spins_to_asset_counts(
+            spins=spins,
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_plus=self.bits_plus,
+            bits_minus=self.bits_minus,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
 
     @property
     def optimizer(self) -> Callable:
@@ -275,17 +304,6 @@ class QAOAOptimizer(BaseOptimizer):
 
         return np.concatenate([betas, gammas])
 
-    def _spins_to_asset_counts(self, spins: np.ndarray, n: int) -> np.ndarray:
-        asset_counts = []
-        for i in range(n):
-            count = 0
-            for p in range(self.bits_per_asset):
-                idx = i * self.bits_per_asset + p
-                if spins[idx] == -1:
-                    count += 2**p
-            asset_counts.append(count)
-        return np.array(asset_counts, dtype=int)
-
     # def optimize(
     #     self,
     #     mu: np.ndarray,
@@ -303,7 +321,7 @@ class QAOAOptimizer(BaseOptimizer):
     #     use_gradient: Optional[bool] = None,
     # ) -> Optional[np.ndarray]:
     #     n = len(mu)
-    #     self.num_spins = n * self.bits_per_asset + self.bits_slack
+    #     self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
 
     #     Q, L, constant = self.qubo_factor(
     #         n=n,
@@ -382,7 +400,7 @@ class QAOAOptimizer(BaseOptimizer):
     #     if best_spins is None:
     #         return None
 
-    #     return self._spins_to_asset_counts(best_spins, n)
+    #     return self._spins_to_asset_counts(best_spins, n, x0)
 
 
     def _get_hamiltonian(self, h: np.ndarray, J: np.ndarray) -> SparsePauliOp:
@@ -466,15 +484,15 @@ class QAOAOptimizer(BaseOptimizer):
     # --- 优化点 2: 目标函数修改 (去掉梯度计算，改用无梯度优化器) ---
     def _objective(
         self,
-        x0: np.ndarray,
+        x_init: np.ndarray,
         circ: QuantumCircuit,
         p: int,
         h: np.ndarray,
         J: np.ndarray,
         shots: int,
     ) -> float:
-        betas = x0[:p]
-        gammas = x0[p:]
+        betas = x_init[:p]
+        gammas = x_init[p:]
         bind_dict = self._build_bind_dict(circ, p, betas, gammas)
         counts = self._run_counts(circ, bind_dict, shots)
         return self._compute_expectation(counts, h, J)
@@ -498,7 +516,7 @@ class QAOAOptimizer(BaseOptimizer):
     ) -> Optional[np.ndarray]:
         # ... (参数初始化代码保持不变) ...
         n = len(mu)
-        self.num_spins = n * self.bits_per_asset + self.bits_slack
+        self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         
         # ... (QUBO 生成代码保持不变) ...
         Q, L, constant = self.qubo_factor(n, mu, sigma, prices, self.num_spins, budget, x0)
@@ -524,9 +542,9 @@ class QAOAOptimizer(BaseOptimizer):
         
 
         for trial in range(chosen_trials):
-            x0 = base_params.copy()
+            x_init = base_params.copy()
             if trial > 0 and chosen_spread > 0:
-                x0 = x0 + rng.normal(scale=chosen_spread, size=2 * chosen_p)
+                x_init = x_init + rng.normal(scale=chosen_spread, size=2 * chosen_p)
 
             # --- 关键修改: 推荐使用 COBYLA ---
             # COBYLA 不需要梯度函数，且对噪声更有鲁棒性
@@ -541,7 +559,7 @@ class QAOAOptimizer(BaseOptimizer):
 
             sol = minimize(
                 self._objective,
-                x0=x0,
+                x0=x_init,
                 args=(circuit, chosen_p, h, J, chosen_shots),
                 method=method, # 使用 COBYLA 或 BFGS
                 jac=jac,
@@ -581,4 +599,4 @@ class QAOAOptimizer(BaseOptimizer):
         min_idx = np.argmin(energies)
         best_spins = spins_matrix[min_idx].astype(int)
 
-        return self._spins_to_asset_counts(best_spins, n)
+        return self._spins_to_asset_counts(best_spins, n, x0)

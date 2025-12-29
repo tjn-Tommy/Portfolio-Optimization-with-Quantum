@@ -7,6 +7,8 @@ from contextlib import redirect_stdout
 from qiskit.circuit import ParameterVector
 from qiskit import QuantumCircuit, transpile
 from optimizer.base import BaseOptimizer
+from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_optimized
+from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from optimizer.utils.qubo_utils import normalize_ising_coeffs
@@ -37,7 +39,6 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self.transact_opt = transact_opt
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
-        print(use_gpu)
         if use_gpu:
             # 1. 强制使用 GPU
             self.backend.set_options(device='GPU')
@@ -110,6 +111,33 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             constant: float
             ):
             return get_ising_coeffs_optimized(Q, L, constant)
+    
+    def compute_num_spins(self,
+                          n_assets: int,
+                          x0: np.ndarray = None
+    ):
+        return compute_num_spins_optimized(
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_slack=self.bits_slack,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
+    
+    def _spins_to_asset_counts(self,
+               spins: np.ndarray,
+               n_assets: int,
+               x0: np.ndarray = None
+    ):
+        return spins_to_asset_counts(
+            spins=spins,
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_plus=self.bits_plus,
+            bits_minus=self.bits_minus,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
 
     @property
     def optimizer(self) -> Callable:
@@ -184,7 +212,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
 
     def optimize(self, mu, prices, sigma, budget, x0) -> np.ndarray:
         n = len(mu)
-        num_spins = n * self.bits_per_asset + self.bits_slack
+        num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         
         # 1. 计算 Ising 系数
         Q, L, constant = self.qubo_factor(n=n, mu=mu, sigma=sigma, prices=prices, n_spins=num_spins, budget=budget, x0=x0)
@@ -230,18 +258,9 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         # 找到最小能量
         min_idx = np.argmin(energies)
         best_spins = spins[min_idx]
-        
-        # 7. 解码
-        asset_counts = []
-        for i in range(n):
-            count = 0
-            for p in range(self.bits_per_asset):
-                idx = i * self.bits_per_asset + p
-                if best_spins[idx] == -1:
-                    count += 2**p
-            asset_counts.append(count)
-        
-        return np.array(asset_counts)
+                
+        return self._spins_to_asset_counts(best_spins, n, x0)
+    
     # def optimize(self,
     #             mu: np.ndarray,
     #             prices: np.ndarray,
