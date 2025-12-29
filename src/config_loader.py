@@ -23,8 +23,7 @@ def build_benchmark_config(config: Dict[str, Any]) -> BenchmarkConfig:
 
 def build_optimizers(config: Dict[str, Any]) -> List[BaseOptimizer]:
     problem_cfg = config.get("problem", {})
-    risk_aversion = float(problem_cfg.get("risk_aversion", 0.0))
-    lam = float(problem_cfg.get("lam", risk_aversion))
+    lam = float(problem_cfg.get("lam", 0.3))
     beta = float(problem_cfg.get("beta", 0.0))
 
     solver_names = config.get("solvers") or config.get("solver")
@@ -44,7 +43,7 @@ def build_optimizers(config: Dict[str, Any]) -> List[BaseOptimizer]:
         solver_cfg = config.get(solver_name, {})
         if not hasattr(solver_cls, "init"):
             raise ValueError(f"{solver_name} does not provide an init method.")
-        optimizers.append(solver_cls.init(solver_cfg, risk_aversion, lam, beta))
+        optimizers.append(solver_cls.init(solver_cfg, lam, beta))
 
     return optimizers
 

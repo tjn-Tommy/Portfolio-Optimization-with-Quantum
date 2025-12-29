@@ -12,30 +12,29 @@ data:
   result_dir: "./result"
 
 problem:
-  start_budget: 1000
-  risk_aversion: 0.5
+  start_budget: 500
   lam: 0.1
   beta: 0.001
 
 solvers:
-  - tensor_network
-  - scip
+  # - tensor_network
+  # - scip
   - quantum_annealing
-  - qaoa
+  # - qaoa
 
 quantum_annealing:
   alpha: 5.0
-  bits_per_asset: 3
-  bits_slack: 5
+  bits_per_asset: 2
+  bits_slack: 8
   time: 10
   steps: 100
   traverse: 1.0
   transact_opt: "quadratic"
-  # noise:
-  #   type: depolarizing
-  #   p1: 0.001
-  #   p2: 0.01
-  #   readout: 0.02
+  noise:
+    type: depolarizing
+    p1: 0.001
+    p2: 0.01
+    readout: 0.02
 
 qaoa:
   alpha: 5.0

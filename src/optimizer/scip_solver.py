@@ -9,25 +9,23 @@ from optimizer.base import BaseOptimizer
 class ScipOptimizer(BaseOptimizer):
     def __init__(
         self,
-        risk_aversion: float,
         lam: float,
         beta: Optional[float],
         upper_bounds: Union[list, np.ndarray, int],
         suppress_output: bool = True,
         transact_opt: str = "ignore"
     ):
-        super().__init__(risk_aversion, lam, beta)
+        super().__init__(lam, beta)
         self.upper_bounds = upper_bounds
         self.suppress_output = suppress_output
         self.transact_opt = transact_opt
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float, beta: Optional[float]) -> "ScipOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "ScipOptimizer":
         upper_bounds = cfg.get("upper_bounds")
         if upper_bounds is None:
             raise ValueError("scip.upper_bounds is required to build ScipOptimizer.")
         return cls(
-            risk_aversion=risk_aversion,
             lam=lam,
             beta=beta,
             transact_opt=cfg.get("transact_opt", "ignore"),

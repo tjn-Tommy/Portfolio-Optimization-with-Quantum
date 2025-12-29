@@ -8,17 +8,15 @@ import os
 
 class BaseOptimizer(ABC):
     def __init__(self, 
-                risk_aversion: float,
                 lam: float,
                 beta: Optional[float],
                 ) -> None:
         
-        self.risk_aversion = risk_aversion
         self.lam = lam
         self.beta = beta if beta is not None else 0.0
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float, beta: Optional[float]) -> "BaseOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "BaseOptimizer":
         raise NotImplementedError("init method must be implemented in subclass.")
 
     @abstractmethod
