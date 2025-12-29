@@ -14,12 +14,54 @@ def qubo_factor(
     bits_slack: int,
     lam: float,
     alpha: float,
+    beta: float = 0.0,
+    transact_opt: str = "ignore",
+    x0: np.ndarray = None
 ) -> Tuple[np.ndarray, np.ndarray, float]:
+    '''
+    Compute QUBO coefficients for portfolio optimization with slack variables.
+    H = lam * x^T * sigma * x - mu^T * x + alpha (x^T * p - B)^2,
+    p: price, B: budget.
+    If bits_slack > 0, the last term is replaced with (x^T * p + s - B)^2, where
+    x, s are represented in binary with bits_per_asset and bits_slack bits respectively.
+    If beta > 0, we may add transaction fee term: H += beta * sum_i |x_i - x_i^0|,
+    where x^0 is the initial asset allocation;
+    transact_opt = "ignore": ignore transaction cost;
+    transact_opt = "quadratic": use quadratic penalty to approximate |x_i - x_i^0|
+    '''
     n_asset_spins = n * bits_per_asset
     Q = np.zeros((n_spins, n_spins))
     L = np.zeros(n_spins)
     constant = alpha * budget * budget
 
+    # Handle transaction cost
+    if beta == 0.0:
+        transact_opt = "ignore" # ignore transaction cost
+    if x0 is None:
+        x0 = np.zeros(n, dtype=int)
+    if transact_opt == "quadratic":
+        max_x = 2 ** bits_per_asset - 1
+        sigma_transact = np.zeros(n)
+        mu_transact = np.zeros(n)
+        const_transact = 0.0
+        for i in range(n):
+            # use quadratic function Ax^2 + Bx + C to approximate |x| in [-a,b]
+            a = x0[i]
+            b = max_x - x0[i]
+            # result from least square fitting
+            A = (30 * a**2 * b**2) / ((a + b)**5)
+            B = (-(a**5-b**5) - 5*a*b*(a**3-b**3) + 26*a**2*b**2*(a-b)) / ((a + b)**5)
+            C = (3*a**2*b**2 * (3*a**2 - 4*a*b + 3*b**2)) / ((a + b)**5)
+            sigma_transact[i] = A
+            mu_transact[i] = B - 2 * A * x0[i]
+            const_transact += A * x0[i]**2 - B * x0[i] + C
+
+        # add to Q, L, constant
+        sigma += beta * np.diag(sigma_transact)
+        mu -= beta * mu_transact
+        constant += beta * const_transact
+
+    # convert to binary representation
     bit_weights = 2 ** np.arange(bits_per_asset)
     slack_weights = 2 ** np.arange(bits_slack)
 
@@ -30,6 +72,7 @@ def qubo_factor(
     linear_asset = -(mu + 2 * alpha * budget * prices)
     L[:n_asset_spins] = (linear_asset[:, None] * bit_weights).reshape(-1)
 
+    # handle slack variables
     if bits_slack > 0:
         asset_bit_prices = np.repeat(prices, bits_per_asset) * np.tile(bit_weights, n)
         cross_block = alpha * np.outer(asset_bit_prices, slack_weights)

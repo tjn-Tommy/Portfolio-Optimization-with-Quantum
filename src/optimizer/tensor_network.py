@@ -16,18 +16,21 @@ class TensorNetworkOptimizer(BaseOptimizer):
         risk_aversion: float,
         lam: float,
         alpha: float,
+        beta: Optional[float],
         bits_per_asset: int,
         bits_slack: int,
-        method: str = "variational_mps",
+        transact_opt: str = "ignore",
+        method: str = "dmrg",
         mps_rank: int = 10,
         mps_bond_dim: int = 6,
         mps_opt: int = 1,
         mps_seed: int = 1,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(risk_aversion, lam, beta)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
+        self.transact_opt = transact_opt
         self.method = method
         self.mps_rank = mps_rank
         self.mps_bond_dim = mps_bond_dim
@@ -36,14 +39,16 @@ class TensorNetworkOptimizer(BaseOptimizer):
         self.num_spins = 0
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "TensorNetworkOptimizer":
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float, beta: Optional[float]) -> "TensorNetworkOptimizer":
         return cls(
             risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
+            beta = beta,
             bits_per_asset=cfg["bits_per_asset"],
             bits_slack=cfg["bits_slack"],
-            method=cfg.get("method", "variational_mps"),
+            transact_opt=cfg.get("transact_opt", "ignore"),
+            method=cfg.get("method", "dmrg"),
             mps_rank=cfg.get("mps_rank", 10),
             mps_bond_dim=cfg.get("mps_bond_dim", 6),
             mps_opt=cfg.get("mps_opt", 1),
@@ -57,6 +62,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         prices: np.ndarray,
         n_spins: int,
         budget: float,
+        x0: Optional[np.ndarray] = None,
     ):
         return qubo_factor_optimized(
             n=n,
@@ -69,6 +75,9 @@ class TensorNetworkOptimizer(BaseOptimizer):
             bits_slack=self.bits_slack,
             lam=self.lam,
             alpha=self.alpha,
+            beta=self.beta,
+            transact_opt=self.transact_opt,
+            x0=x0,
         )
 
     def get_ising_coeffs(self, Q: np.ndarray, L: np.ndarray, constant: float):
@@ -95,6 +104,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         prices: np.ndarray,
         sigma: np.ndarray,
         budget: float,
+        x0: Optional[np.ndarray] = None,
         method: Optional[str] = None,
         mps_rank: Optional[int] = None,
         mps_bond_dim: Optional[int] = None,
@@ -110,6 +120,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
             prices=prices,
             n_spins=self.num_spins,
             budget=budget,
+            x0=x0,
         )
         h, J, _ = self.get_ising_coeffs(Q, L, constant)
 

@@ -17,6 +17,7 @@ class BenchmarkConfig:
     asset_count : int
     stock_list : Union[None, List[str]]
     history_window : int
+    beta : float = 0.0 # transaction cost coefficient
     alpha : Optional[float] = None # penalty coefficient
     data_dir : Optional[str] = None
     result_dir : Optional[str] = None
@@ -34,6 +35,7 @@ class BenchmarkConfig:
         return cls(
             start_date=data_cfg["start_date"],
             start_budget=problem_cfg["start_budget"],
+            beta=problem_cfg.get("beta", 0.0),
             max_iter=data_cfg["max_iter"],
             asset_count=asset_count,
             stock_list=stock_list,
@@ -181,6 +183,7 @@ class Benchmark():
         **kwargs,
     ) -> dict:
         budget = self.benchmark_config.start_budget
+        beta = self.benchmark_config.beta
         self.dataset.set_date(self.benchmark_config.start_date)
         current_date = pd.to_datetime(self.benchmark_config.start_date)
 
@@ -188,6 +191,7 @@ class Benchmark():
         date_history = [current_date]
         objective = [0.0]
         best_xs = []
+        latest_best_x = None
 
         current_date = self.dataset.next_date()
         iterations = 0
@@ -201,12 +205,15 @@ class Benchmark():
             if mu is None or sigma is None or open_prices is None or len(mu) == 0:
                 break
 
-            best_x = optimizer(mu, open_prices, sigma, budget, **kwargs)
-            best_xs.append(best_x)
+            best_x = optimizer(mu, open_prices, sigma, budget, latest_best_x, **kwargs)
             # Calculate the objective:
-            objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x))
+            assets_change = best_x - (latest_best_x if latest_best_x is not None else np.zeros_like(best_x))
+            transaction_cost = beta * np.sum(open_prices * np.abs(assets_change))
+            objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
+            best_xs.append(best_x)
+            latest_best_x = best_x
 
-            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, budget: {budget:.8f}")
+            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, budget: {budget:.8f}, transaction cost: {transaction_cost:.8f}")
 
             if best_x is None:
                 print(f"{prefix}Optimization failed for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
@@ -218,11 +225,15 @@ class Benchmark():
                 break
 
             try:
-                budget = budget + best_x @ (close_prices - open_prices)
+                budget = budget + best_x @ (close_prices - open_prices) - transaction_cost
             except ValueError as e:
                 print(f"{prefix}Error calculating new budget on date {current_date.strftime('%Y-%m-%d')}: {e}")
                 print(f"{prefix}best_x shape: {best_x.shape}, close_prices shape: {close_prices.shape}")
                 break
+
+            # final transaction cost update
+            transaction_cost = beta * np.sum(open_prices * best_x)
+            budget -= transaction_cost
 
             budget_history.append(budget)
             date_history.append(pd.to_datetime(current_date))

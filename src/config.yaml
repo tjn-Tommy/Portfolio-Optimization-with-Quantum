@@ -1,6 +1,6 @@
 data:
   start_date: "2024-08-01"
-  max_iter: 30
+  max_iter: 3
   stock_list:
     - AAPL
     - MSFT
@@ -15,6 +15,7 @@ problem:
   start_budget: 1000
   risk_aversion: 0.5
   lam: 0.1
+  beta: 0.001
 
 solvers:
   - tensor_network
@@ -29,6 +30,7 @@ quantum_annealing:
   time: 10
   steps: 100
   traverse: 1.0
+  transact_opt: "quadratic"
   # noise:
   #   type: depolarizing
   #   p1: 0.001
@@ -39,6 +41,7 @@ qaoa:
   alpha: 5.0
   bits_per_asset: 3
   bits_slack: 8
+  transact_opt: "quadratic"
   p: 1
   shots: 1000
   n_trials: 1
@@ -53,6 +56,7 @@ tensor_network:
   alpha: 5.0
   bits_per_asset: 3
   bits_slack: 8
+  transact_opt: "quadratic"
   method: "dmrg"
   # method: "variational_mps"
   mps_rank: 10

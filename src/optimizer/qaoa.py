@@ -17,8 +17,10 @@ class QAOAOptimizer(BaseOptimizer):
         risk_aversion: float,
         lam: float,
         alpha: float,
+        beta: Optional[float],
         bits_per_asset: int,
         bits_slack: int,
+        transact_opt: str = "ignore",
         p: int = 1,
         shots: int = 1000,
         n_trials: int = 1,
@@ -29,10 +31,11 @@ class QAOAOptimizer(BaseOptimizer):
         use_gradient: bool = True,
         noise_config: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(risk_aversion, lam, beta)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
+        self.transact_opt = transact_opt
         self.p = p
         self.shots = shots
         self.n_trials = n_trials
@@ -46,11 +49,13 @@ class QAOAOptimizer(BaseOptimizer):
         self.num_spins = 0
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "QAOAOptimizer":
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float, beta: Optional[float]) -> "QAOAOptimizer":
         return cls(
             risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
+            beta=beta,
+            transact_opt=cfg.get("transact_opt", "ignore"),
             bits_per_asset=cfg["bits_per_asset"],
             bits_slack=cfg["bits_slack"],
             p=cfg.get("p", 1),
@@ -72,6 +77,7 @@ class QAOAOptimizer(BaseOptimizer):
         prices: np.ndarray,
         n_spins: int,
         budget: float,
+        x0: Optional[np.ndarray] = None
     ):
         return qubo_factor_optimized(
             n=n,
@@ -84,6 +90,9 @@ class QAOAOptimizer(BaseOptimizer):
             bits_slack=self.bits_slack,
             lam=self.lam,
             alpha=self.alpha,
+            beta=self.beta,
+            transact_opt=self.transact_opt,
+            x0=x0,
         )
 
     def get_ising_coeffs(self, Q: np.ndarray, L: np.ndarray, constant: float):
@@ -93,9 +102,6 @@ class QAOAOptimizer(BaseOptimizer):
     def optimizer(self) -> Callable:
         return self.optimize
     
-    def __call__(self, mu: np.ndarray[tuple[Any, ...], np.dtype[Any]], prices: np.ndarray[tuple[Any, ...], np.dtype[Any]], sigma: np.ndarray[tuple[Any, ...], np.dtype[Any]], budget: float, **args) -> Optional[np.ndarray]:
-        return self.optimize(mu, prices, sigma, budget, **args)
-
     def _build_circuit(self, p: int, h: np.ndarray, J: np.ndarray) -> QuantumCircuit:
         betas = ParameterVector("betas", p)
         gammas = ParameterVector("gammas", p)
@@ -276,6 +282,7 @@ class QAOAOptimizer(BaseOptimizer):
         prices: np.ndarray,
         sigma: np.ndarray,
         budget: float,
+        x0: Optional[np.ndarray] = None,
         p: Optional[int] = None,
         shots: Optional[int] = None,
         n_trials: Optional[int] = None,
@@ -296,6 +303,7 @@ class QAOAOptimizer(BaseOptimizer):
             prices=prices,
             n_spins=self.num_spins,
             budget=budget,
+            x0=x0,
         )
         h, J, C = self.get_ising_coeffs(Q, L, constant)
 

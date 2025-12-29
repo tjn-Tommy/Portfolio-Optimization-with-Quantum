@@ -18,20 +18,23 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         risk_aversion: float,
         lam: float,
         alpha: float,
+        beta: Optional[float],
         bits_per_asset: int,
         bits_slack: int,
         time: float = 10,
         steps: int = 100,
         traverse: float = 1.0,
+        transact_opt: str = "ignore",
         noise_config: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(risk_aversion, lam, beta)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
         self.time = time
         self.steps = steps
         self.traverse = traverse
+        self.transact_opt = transact_opt
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
 
@@ -44,11 +47,13 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self._J_param_map: Dict[Tuple[int, int], int] = {}
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "QuantumAnnealingOptimizer":
+    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float, beta: Optional[float]) -> "QuantumAnnealingOptimizer":
         return cls(
             risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
+            beta=beta,
+            transact_opt=cfg.get("transact_opt", "ignore"),
             bits_per_asset=cfg["bits_per_asset"],
             bits_slack=cfg["bits_slack"],
             time=cfg.get("time", 10),
@@ -63,7 +68,8 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
                     sigma: np.ndarray, 
                     prices: np.ndarray, 
                     n_spins: int, 
-                    budget: float
+                    budget: float,
+                    x0: Optional[np.ndarray] = None
                     ):
         return qubo_factor_optimized(
             n=n,
@@ -76,6 +82,9 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             bits_slack=self.bits_slack,
             lam=self.lam,
             alpha=self.alpha,
+            beta=self.beta,
+            transact_opt=self.transact_opt,
+            x0=x0,
         )
     
     def get_ising_coeffs(
@@ -157,12 +166,12 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         transpiled_qc = transpile(qc, self.backend, optimization_level=2)
         return transpiled_qc
 
-    def optimize(self, mu, prices, sigma, budget) -> np.ndarray:
+    def optimize(self, mu, prices, sigma, budget, x0) -> np.ndarray:
         n = len(mu)
         num_spins = n * self.bits_per_asset + self.bits_slack
         
         # 1. 计算 Ising 系数
-        Q, L, constant = self.qubo_factor(n=n, mu=mu, sigma=sigma, prices=prices, n_spins=num_spins, budget=budget)
+        Q, L, constant = self.qubo_factor(n=n, mu=mu, sigma=sigma, prices=prices, n_spins=num_spins, budget=budget, x0=x0)
         h, J, C = self.get_ising_coeffs(Q, L, constant)
         h_scaled, J_scaled, C_scaled = normalize_ising_coeffs(h, J, C)
 
