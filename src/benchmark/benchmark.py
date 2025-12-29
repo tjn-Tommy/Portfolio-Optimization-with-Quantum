@@ -213,7 +213,7 @@ class Benchmark():
             best_xs.append(best_x)
             latest_best_x = best_x
 
-            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, budget: {budget:.8f}, transaction cost: {transaction_cost:.8f}")
+            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, transaction cost: {transaction_cost:.8f}, budget: {budget:.8f}")
 
             if best_x is None:
                 print(f"{prefix}Optimization failed for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")

@@ -20,7 +20,7 @@ solvers:
   # - tensor_network
   # - scip
   - quantum_annealing
-  # - qaoa
+  - qaoa
 
 quantum_annealing:
   alpha: 5.0
@@ -30,11 +30,12 @@ quantum_annealing:
   steps: 100
   traverse: 1.0
   transact_opt: "quadratic"
-  noise:
-    type: depolarizing
-    p1: 0.001
-    p2: 0.01
-    readout: 0.02
+  # noise:
+  #   type: depolarizing
+  #   p1: 0.001
+  #   p2: 0.01
+  #   readout: 0.02
+  use_gpu: false
 
 qaoa:
   alpha: 5.0
@@ -50,6 +51,7 @@ qaoa:
   seed: null
   use_gradient: true
   noise: null
+  use_gpu: false
 
 tensor_network:
   alpha: 5.0
@@ -57,7 +59,6 @@ tensor_network:
   bits_slack: 8
   transact_opt: "quadratic"
   method: "dmrg"
-  # method: "variational_mps"
   mps_rank: 10
   mps_bond_dim: 20
   mps_opt: 1

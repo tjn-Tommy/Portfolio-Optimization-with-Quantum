@@ -29,6 +29,7 @@ class QAOAOptimizer(BaseOptimizer):
         seed: Optional[int] = None,
         use_gradient: bool = True,
         noise_config: Optional[Dict[str, Any]] = None,
+        use_gpu: bool = False,
     ):
         super().__init__(lam, beta)
         self.alpha = alpha
@@ -45,7 +46,7 @@ class QAOAOptimizer(BaseOptimizer):
         self.use_gradient = use_gradient
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
-        try:
+        if use_gpu:
             # 1. 强制使用 GPU
             self.backend.set_options(device='GPU')
             
@@ -55,9 +56,6 @@ class QAOAOptimizer(BaseOptimizer):
             self.backend.set_options(precision='single') 
             
             print("✅ GPU Acceleration enabled with Single Precision.")
-        except Exception as e:
-            print(f"⚠️ GPU setup failed, falling back to CPU: {e}")
-            self.backend.set_options(device='CPU')
         self.num_spins = 0
 
     @classmethod
@@ -78,6 +76,7 @@ class QAOAOptimizer(BaseOptimizer):
             seed=cfg.get("seed"),
             use_gradient=cfg.get("use_gradient", True),
             noise_config=cfg.get("noise"),
+            use_gpu=cfg.get("use_gpu", False),
         )
 
     def qubo_factor(

@@ -25,6 +25,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         traverse: float = 1.0,
         transact_opt: str = "ignore",
         noise_config: Optional[Dict[str, Any]] = None,
+        use_gpu: bool = False,
     ):
         super().__init__(lam, beta)
         self.alpha = alpha
@@ -36,24 +37,22 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self.transact_opt = transact_opt
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
-        # try:
-        #     # 1. 强制使用 GPU
-        #     self.backend.set_options(device='GPU')
+        print(use_gpu)
+        if use_gpu:
+            # 1. 强制使用 GPU
+            self.backend.set_options(device='GPU')
             
-        #     # 2. 关键：设置精度为单精度
-        #     # "single": complex64 (对应 float32)
-        #     # "double": complex128 (对应 float64) - 默认值
-        #     self.backend.set_options(precision='single',
-        #                              batched_shots_gpu=True,
-        #                              max_shot_size=1000,
-        #                             #  cuStateVec_enable=True,
-        #                              batched_shots_gpu_max_qubits=22,
-        #                              ) 
+            # 2. 关键：设置精度为单精度
+            # "single": complex64 (对应 float32)
+            # "double": complex128 (对应 float64) - 默认值
+            self.backend.set_options(precision='single',
+                                     batched_shots_gpu=True,
+                                     max_shot_size=1000,
+                                    #  cuStateVec_enable=True,
+                                     batched_shots_gpu_max_qubits=22,
+                                     ) 
             
-        #     print("✅ GPU Acceleration enabled with Single Precision.")
-        # except Exception as e:
-        #     print(f"⚠️ GPU setup failed, falling back to CPU: {e}")
-        #     self.backend.set_options(device='CPU')
+            print("✅ GPU Acceleration enabled with Single Precision.")
 
         # === 缓存变量 ===
         self._cached_circuit: Optional[QuantumCircuit] = None
@@ -76,6 +75,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             steps=cfg.get("steps", 100),
             traverse=cfg.get("traverse", 1.0),
             noise_config=cfg.get("noise"),
+            use_gpu=cfg.get("use_gpu", False),
         )
 
     def qubo_factor(self, 
