@@ -17,9 +17,9 @@ problem:
   beta: 0.001
 
 solvers:
-  - tensor_network
-  - scip
-  - quantum_annealing
+  # - tensor_network
+  # - scip
+  # - quantum_annealing
   - qaoa
 
 quantum_annealing:
@@ -49,7 +49,8 @@ qaoa:
   grad_delta: 0.01
   init_spread: 0.0
   seed: null
-  use_gradient: true
+  optimization_algorithm: "SPSA"
+  grad_method: "param_shift"
   noise: null
   use_gpu: false
 

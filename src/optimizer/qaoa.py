@@ -3,7 +3,7 @@ from typing import Callable, Optional, Sequence, Any, Dict
 import numpy as np
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import ParameterVector
-from scipy.optimize import minimize
+from scipy.optimize import minimize, OptimizeResult
 from qiskit.quantum_info import SparsePauliOp
 from optimizer.base import BaseOptimizer
 from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_optimized
@@ -11,6 +11,23 @@ from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from optimizer.utils.noise_utils import build_aer_simulator
+
+
+GRADIENT_BASED_METHODS = {
+    "BFGS",
+    "L-BFGS-B",
+    "CG",
+    "NEWTON-CG",
+    "DOGLEG",
+    "TRUST-NCG",
+    "TRUST-KRYLOV",
+    "TRUST-EXACT",
+    "TRUST-CONSTR",
+    "TNC",
+    "SLSQP",
+}
+VALID_GRAD_METHODS = {"param_shift", "finite_diff"}
+PARAM_SHIFT = np.pi / 2.0
 
 
 class QAOAOptimizer(BaseOptimizer):
@@ -29,7 +46,9 @@ class QAOAOptimizer(BaseOptimizer):
         grad_delta: float = 0.01,
         init_spread: float = 0.0,
         seed: Optional[int] = None,
-        use_gradient: bool = True,
+        optimization_algorithm: str = "COBYLA",
+        grad_method: str = "param_shift",
+        spsa_options: Optional[Dict[str, float]] = None,
         noise_config: Optional[Dict[str, Any]] = None,
         use_gpu: bool = False,
     ):
@@ -45,7 +64,9 @@ class QAOAOptimizer(BaseOptimizer):
         self.grad_delta = grad_delta
         self.init_spread = init_spread
         self.seed = seed
-        self.use_gradient = use_gradient
+        self.optimization_algorithm = optimization_algorithm
+        self.grad_method = grad_method
+        self.spsa_options = spsa_options or {}
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
         if use_gpu:
@@ -76,7 +97,12 @@ class QAOAOptimizer(BaseOptimizer):
             grad_delta=cfg.get("grad_delta", 0.01),
             init_spread=cfg.get("init_spread", 0.0),
             seed=cfg.get("seed"),
-            use_gradient=cfg.get("use_gradient", True),
+            optimization_algorithm=cfg.get(
+                "optimization_algorithm",
+                cfg.get("optimzation_algorithm", "COBYLA"),
+            ),
+            grad_method=cfg.get("grad_method", "param_shift"),
+            spsa_options=cfg.get("spsa"),
             noise_config=cfg.get("noise"),
             use_gpu=cfg.get("use_gpu", False),
         )
@@ -196,92 +222,6 @@ class QAOAOptimizer(BaseOptimizer):
             spins[i] = 1 if char == "0" else -1
         return spins
 
-    # def _compute_expectation(
-    #     self,
-    #     counts,
-    #     h: np.ndarray,
-    #     J: np.ndarray,
-    # ) -> float:
-    #     if not counts:
-    #         return float("inf")
-    #     bitstrings = list(counts.keys())
-    #     counts_arr = np.array(list(counts.values()), dtype=float)
-    #     total_shots = counts_arr.sum()
-    #     if total_shots <= 0:
-    #         return float("inf")
-
-    #     spins = np.zeros((len(bitstrings), self.num_spins))
-    #     for k, bitstring in enumerate(bitstrings):
-    #         spins[k] = self._bitstring_to_spins(bitstring)
-
-    #     term1 = spins @ h
-    #     term2 = np.sum((spins @ J) * spins, axis=1)
-    #     energies = term1 + term2
-    #     return float(np.sum(energies * counts_arr) / total_shots)
-
-    # def _objective(
-    #     self,
-    #     x0: np.ndarray,
-    #     circ: QuantumCircuit,
-    #     p: int,
-    #     h: np.ndarray,
-    #     J: np.ndarray,
-    #     shots: int,
-    # ) -> float:
-    #     betas = x0[:p]
-    #     gammas = x0[p:]
-    #     bind_dict = self._build_bind_dict(circ, p, betas, gammas)
-    #     counts = self._run_counts(circ, bind_dict, shots)
-    #     return self._compute_expectation(counts, h, J)
-
-    # def _gradient(
-    #     self,
-    #     x0: np.ndarray,
-    #     circ: QuantumCircuit,
-    #     p: int,
-    #     h: np.ndarray,
-    #     J: np.ndarray,
-    #     shots: int,
-    #     delta: float,
-    # ) -> np.ndarray:
-    #     num_params = len(x0)
-    #     param_sets = []
-    #     for i in range(num_params):
-    #         x_plus = x0.copy()
-    #         x_plus[i] += delta
-    #         param_sets.append(x_plus)
-
-    #         x_minus = x0.copy()
-    #         x_minus[i] -= delta
-    #         param_sets.append(x_minus)
-
-    #     param_map = {param.name: param for param in circ.parameters}
-    #     binds = []
-    #     for params in param_sets:
-    #         betas = params[:p]
-    #         gammas = params[p:]
-    #         bind_dict = {}
-    #         for i in range(p):
-    #             bind_dict[param_map[f"betas[{i}]"]] = [float(betas[i])]
-    #             bind_dict[param_map[f"gammas[{i}]"]] = [float(gammas[i])]
-    #         binds.append(bind_dict)
-    #     circuits_to_run = [circ] * len(binds)
-    #     job = self.backend.run(circuits_to_run, shots=shots, parameter_binds=binds)
-    #     counts_list = job.result().get_counts()
-    #     if not isinstance(counts_list, list):
-    #         counts_list = [counts_list]
-
-    #     gradients = np.zeros(num_params)
-    #     for i in range(num_params):
-    #         counts_plus = counts_list[2 * i]
-    #         counts_minus = counts_list[2 * i + 1]
-
-    #         e_plus = self._compute_expectation(counts_plus, h, J)
-    #         e_minus = self._compute_expectation(counts_minus, h, J)
-    #         gradients[i] = (e_plus - e_minus) / (2 * delta)
-
-    #     return gradients
-
     def _initial_params(
         self,
         p: int,
@@ -303,105 +243,6 @@ class QAOAOptimizer(BaseOptimizer):
                 raise ValueError("initial_gammas must have length p")
 
         return np.concatenate([betas, gammas])
-
-    # def optimize(
-    #     self,
-    #     mu: np.ndarray,
-    #     prices: np.ndarray,
-    #     sigma: np.ndarray,
-    #     budget: float,
-    #     p: Optional[int] = None,
-    #     shots: Optional[int] = None,
-    #     n_trials: Optional[int] = None,
-    #     maxiter: Optional[int] = None,
-    #     initial_betas: Optional[Sequence[float]] = None,
-    #     initial_gammas: Optional[Sequence[float]] = None,
-    #     init_spread: Optional[float] = None,
-    #     seed: Optional[int] = None,
-    #     use_gradient: Optional[bool] = None,
-    # ) -> Optional[np.ndarray]:
-    #     n = len(mu)
-    #     self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
-
-    #     Q, L, constant = self.qubo_factor(
-    #         n=n,
-    #         mu=mu,
-    #         sigma=sigma,
-    #         prices=prices,
-    #         n_spins=self.num_spins,
-    #         budget=budget,
-    #     )
-    #     h, J, C = self.get_ising_coeffs(Q, L, constant)
-
-    #     chosen_p = p if p is not None else self.p
-    #     chosen_shots = shots if shots is not None else self.shots
-    #     chosen_trials = n_trials if n_trials is not None else self.n_trials
-    #     chosen_maxiter = maxiter if maxiter is not None else self.maxiter
-    #     chosen_spread = init_spread if init_spread is not None else self.init_spread
-    #     chosen_seed = seed if seed is not None else self.seed
-    #     chosen_grad = use_gradient if use_gradient is not None else self.use_gradient
-
-    #     circuit = self._build_circuit(chosen_p, h, J)
-    #     circuit = transpile(circuit, self.backend)
-
-    #     base_params = self._initial_params(
-    #         chosen_p,
-    #         initial_betas,
-    #         initial_gammas,
-    #     )
-
-    #     rng = np.random.default_rng(chosen_seed)
-    #     best_solution = None
-    #     best_value = float("inf")
-
-    #     def jac_fn(x, *args):
-    #         return self._gradient(x, *args, delta=self.grad_delta)
-
-    #     for trial in range(chosen_trials):
-    #         x0 = base_params.copy()
-    #         if trial > 0 and chosen_spread > 0:
-    #             x0 = x0 + rng.normal(scale=chosen_spread, size=2 * chosen_p)
-
-    #         jac = None
-    #         if chosen_grad:
-    #             jac = jac_fn
-    #         sol = minimize(
-    #             self._objective,
-    #             x0=x0,
-    #             args=(circuit, chosen_p, h, J, chosen_shots),
-    #             method="BFGS",
-    #             jac=jac,
-    #             options={"maxiter": chosen_maxiter},
-    #         )
-    #         if np.isfinite(sol.fun) and sol.fun < best_value:
-    #             best_value = sol.fun
-    #             best_solution = sol
-
-    #     if best_solution is None:
-    #         return None
-
-    #     best_params = best_solution.x
-    #     betas = best_params[:chosen_p]
-    #     gammas = best_params[chosen_p:]
-    #     bind_dict = self._build_bind_dict(circuit, chosen_p, betas, gammas)
-    #     counts = self._run_counts(circuit, bind_dict, chosen_shots)
-    #     if not counts:
-    #         return None
-
-    #     min_energy = float("inf")
-    #     best_spins = None
-    #     for bitstring in counts:
-    #         spins = self._bitstring_to_spins(bitstring)
-    #         energy = spins @ J @ spins + h @ spins + C
-    #         if energy < min_energy:
-    #             min_energy = energy
-    #             best_spins = spins
-
-    #     if best_spins is None:
-    #         return None
-
-    #     return self._spins_to_asset_counts(best_spins, n, x0)
-
 
     def _get_hamiltonian(self, h: np.ndarray, J: np.ndarray) -> SparsePauliOp:
         num_qubits = len(h)
@@ -481,7 +322,7 @@ class QAOAOptimizer(BaseOptimizer):
         avg_energy = np.sum(energies * freqs) / total_shots
         return float(avg_energy)
 
-    # --- 优化点 2: 目标函数修改 (去掉梯度计算，改用无梯度优化器) ---
+    # --- 优化点 2: 目标函数 ---
     def _objective(
         self,
         x_init: np.ndarray,
@@ -496,6 +337,113 @@ class QAOAOptimizer(BaseOptimizer):
         bind_dict = self._build_bind_dict(circ, p, betas, gammas)
         counts = self._run_counts(circ, bind_dict, shots)
         return self._compute_expectation(counts, h, J)
+
+    def _evaluate_expectations(
+        self,
+        param_sets: Sequence[np.ndarray],
+        circ: QuantumCircuit,
+        p: int,
+        h: np.ndarray,
+        J: np.ndarray,
+        shots: int,
+    ) -> Sequence[float]:
+        if not param_sets:
+            return []
+
+        binds = []
+        for params in param_sets:
+            betas = params[:p]
+            gammas = params[p:]
+            binds.append(self._build_bind_dict(circ, p, betas, gammas))
+
+        circuits_to_run = [circ] * len(binds)
+        job = self.backend.run(circuits_to_run, shots=shots, parameter_binds=binds)
+        counts_list = job.result().get_counts()
+        if not isinstance(counts_list, list):
+            counts_list = [counts_list]
+
+        return [self._compute_expectation(counts, h, J) for counts in counts_list]
+
+    def _gradient(
+        self,
+        x_init: np.ndarray,
+        circ: QuantumCircuit,
+        p: int,
+        h: np.ndarray,
+        J: np.ndarray,
+        shots: int,
+        method: str,
+    ) -> np.ndarray:
+        method_key = (method or "").lower()
+        if method_key == "finite_diff":
+            step = float(self.grad_delta)
+            if step <= 0:
+                raise ValueError("grad_delta must be positive for finite_diff.")
+            scale = 1.0 / (2.0 * step)
+        elif method_key == "param_shift":
+            step = PARAM_SHIFT
+            scale = 0.5
+        else:
+            raise ValueError(f"Unsupported grad_method: {method}")
+
+        param_sets = []
+        for i in range(len(x_init)):
+            x_plus = x_init.copy()
+            x_plus[i] += step
+            x_minus = x_init.copy()
+            x_minus[i] -= step
+            param_sets.append(x_plus)
+            param_sets.append(x_minus)
+
+        energies = self._evaluate_expectations(param_sets, circ, p, h, J, shots)
+        gradients = np.zeros(len(x_init))
+        for i in range(len(x_init)):
+            gradients[i] = scale * (energies[2 * i] - energies[2 * i + 1])
+        return gradients
+
+    @staticmethod
+    def _algorithm_uses_gradient(method: str) -> bool:
+        return method.strip().upper() in GRADIENT_BASED_METHODS
+
+    def _optimize_spsa(
+        self,
+        objective_fn: Callable[[np.ndarray], float],
+        x_init: np.ndarray,
+        maxiter: int,
+        rng: Optional[np.random.Generator],
+    ) -> OptimizeResult:
+        if rng is None:
+            rng = np.random.default_rng()
+
+        options = self.spsa_options
+        a = float(options.get("a", 0.2))
+        c = float(options.get("c", 0.1))
+        alpha = float(options.get("alpha", 0.602))
+        gamma = float(options.get("gamma", 0.101))
+        A = float(options.get("A", max(1, maxiter // 10)))
+
+        x = x_init.copy()
+        best_x = x.copy()
+        best_val = objective_fn(x)
+        n_params = len(x)
+
+        for k in range(maxiter):
+            ak = a / ((k + 1 + A) ** alpha)
+            ck = c / ((k + 1) ** gamma)
+            delta = rng.choice([-1.0, 1.0], size=n_params)
+            x_plus = x + ck * delta
+            x_minus = x - ck * delta
+            f_plus = objective_fn(x_plus)
+            f_minus = objective_fn(x_minus)
+            g_hat = (f_plus - f_minus) / (2.0 * ck) * delta
+            x = x - ak * g_hat
+
+            f_val = objective_fn(x)
+            if f_val < best_val:
+                best_val = f_val
+                best_x = x.copy()
+
+        return OptimizeResult(x=best_x, fun=best_val, nit=maxiter)
     
     def optimize(
         self,
@@ -512,13 +460,12 @@ class QAOAOptimizer(BaseOptimizer):
         initial_gammas: Optional[Sequence[float]] = None,
         init_spread: Optional[float] = None,
         seed: Optional[int] = None,
-        use_gradient: Optional[bool] = False, # 建议默认为 False
+        optimization_algorithm: Optional[str] = None,
+        grad_method: Optional[str] = None,
     ) -> Optional[np.ndarray]:
-        # ... (参数初始化代码保持不变) ...
         n = len(mu)
         self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         
-        # ... (QUBO 生成代码保持不变) ...
         Q, L, constant = self.qubo_factor(n, mu, sigma, prices, self.num_spins, budget, x0)
         h, J, C = self.get_ising_coeffs(Q, L, constant)
 
@@ -529,6 +476,23 @@ class QAOAOptimizer(BaseOptimizer):
         chosen_maxiter = maxiter if maxiter is not None else self.maxiter
         chosen_spread = init_spread if init_spread is not None else self.init_spread
         chosen_seed = seed if seed is not None else self.seed
+        chosen_algorithm = (
+            optimization_algorithm
+            if optimization_algorithm is not None
+            else self.optimization_algorithm
+        )
+        if not chosen_algorithm:
+            chosen_algorithm = "COBYLA"
+        chosen_grad_method = grad_method if grad_method is not None else self.grad_method
+        method_key = chosen_algorithm.strip().upper()
+        use_spsa = method_key == "SPSA"
+        requires_gradient = self._algorithm_uses_gradient(method_key)
+        grad_method_key = (chosen_grad_method or "").lower()
+        if requires_gradient and grad_method_key not in VALID_GRAD_METHODS:
+            raise ValueError(
+                f"Unsupported grad_method: {chosen_grad_method}. "
+                f"Choose from {sorted(VALID_GRAD_METHODS)}."
+            )
         
         # 构建电路
         circuit = self._build_circuit(chosen_p, h, J)
@@ -538,36 +502,37 @@ class QAOAOptimizer(BaseOptimizer):
         rng = np.random.default_rng(chosen_seed)
         best_solution = None
         best_value = float("inf")
-
-        
+        objective_fn = lambda params: self._objective(
+            params, circuit, chosen_p, h, J, chosen_shots
+        )
 
         for trial in range(chosen_trials):
             x_init = base_params.copy()
             if trial > 0 and chosen_spread > 0:
                 x_init = x_init + rng.normal(scale=chosen_spread, size=2 * chosen_p)
 
-            # --- 关键修改: 推荐使用 COBYLA ---
-            # COBYLA 不需要梯度函数，且对噪声更有鲁棒性
-            method = "COBYLA"
-            jac = None
-            
-            # 如果你确实非常想用梯度 (BFGS)，请保留原有的 jac_fn 逻辑，
-            # 但要注意 BFGS 在含噪量子模拟中性能通常很差。
-            if use_gradient: 
-                method = "BFGS"
-                jac = lambda x, *args: self._gradient(x, *args, delta=self.grad_delta)
+            if use_spsa:
+                sol = self._optimize_spsa(objective_fn, x_init, chosen_maxiter, rng)
+            else:
+                jac = None
+                if requires_gradient:
+                    jac = lambda x, *args: self._gradient(
+                        x, *args, method=grad_method_key
+                    )
 
-            sol = minimize(
-                self._objective,
-                x0=x_init,
-                args=(circuit, chosen_p, h, J, chosen_shots),
-                method=method, # 使用 COBYLA 或 BFGS
-                jac=jac,
-                options={"maxiter": chosen_maxiter},
-                tol=1e-4 # 对于 COBYLA 有用
-            )
+                minimize_kwargs = {
+                    "x0": x_init,
+                    "args": (circuit, chosen_p, h, J, chosen_shots),
+                    "method": chosen_algorithm,
+                    "options": {"maxiter": chosen_maxiter},
+                    "tol": 1e-4,
+                }
+                if jac is not None:
+                    minimize_kwargs["jac"] = jac
 
-            if sol.fun < best_value:
+                sol = minimize(self._objective, **minimize_kwargs)
+
+            if np.isfinite(sol.fun) and sol.fun < best_value:
                 best_value = sol.fun
                 best_solution = sol
 
