@@ -150,6 +150,7 @@ def qubo_factor(
     where x^0 is the initial asset allocation;
     transact_opt = "ignore": ignore transaction cost;
     transact_opt = "quadratic": use quadratic penalty to approximate |x_i - x_i^0|
+    transact_opt = "exact": use exact formulation with additional variables.
     '''
     Q0 = lam * sigma + alpha * np.outer(prices, prices)
     L0 = -mu - 2 * alpha * budget * prices

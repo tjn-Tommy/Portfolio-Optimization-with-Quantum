@@ -551,7 +551,7 @@ class QAOAOptimizer(BaseOptimizer):
             else:
                 jac = None
                 if requires_gradient:
-                    if grad_method_key == "shot_based" 
+                    if grad_method_key == "shot_based":
                         jac = lambda x, *args: self._gradient(
                             x, *args, method="finite_diff"
                         )
