@@ -126,6 +126,7 @@ class TensorNetworkOptimizer(BaseOptimizer):
         mps_bond_dim: Optional[int] = None,
         mps_opt: Optional[int] = None,
         mps_seed: Optional[int] = None,
+        **kwargs,
     ) -> Optional[np.ndarray]:
         n = len(mu)
         self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)

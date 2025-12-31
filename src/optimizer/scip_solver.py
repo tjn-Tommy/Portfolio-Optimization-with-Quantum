@@ -44,6 +44,7 @@ class ScipOptimizer(BaseOptimizer):
         sigma: np.ndarray,
         budget: float,
         x0: Optional[np.ndarray] = None,
+        **kwargs,
     ) -> Optional[np.ndarray]:
         n = len(mu)
         model = Model("mean_variance_mip")

@@ -203,7 +203,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         transpiled_qc = transpile(qc, self.backend, optimization_level=2)
         return transpiled_qc
 
-    def optimize(self, mu, prices, sigma, budget, x0) -> np.ndarray:
+    def optimize(self, mu, prices, sigma, budget, x0, **kwargs) -> np.ndarray:
         n = len(mu)
         num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         

@@ -18,7 +18,7 @@ def benchmark_qaoa_gradients():
     beta = 0.0
     alpha = 100.0
     bits_per_asset = 3
-    bits_slack = 8
+    bits_slack =9
     p = 5 
     shots = 1000
     
@@ -36,7 +36,7 @@ def benchmark_qaoa_gradients():
     )
 
     # Dummy Problem
-    n_assets = 5 # Small problem
+    n_assets = 7 # Small problem
     print(f"Problem size: {n_assets} assets")
     
     mu = np.random.rand(n_assets)
@@ -70,14 +70,14 @@ def benchmark_qaoa_gradients():
     print("\n--- Benchmarking Estimator Gradient ---")
     # Warmup
     try:
-        _ = optimizer._gradient_estimator(x_init, circuit_no_measure, p, h, J, shots, method="finite_diff")
+        _ = optimizer._gradient_estimator(x_init, circuit_no_measure, p, h, J, shots)
     except Exception as e:
         print(f"Estimator warmup failed: {e}")
     print("Warmed up estimator.")
     start_time = time.time()
     n_loops = 2
     for _ in tqdm(range(n_loops), desc="Estimating Gradient"):
-        grad_est = optimizer._gradient_estimator(x_init, circuit_no_measure, p, h, J, shots, method="finite_diff")
+        grad_est = optimizer._gradient_estimator(x_init, circuit_no_measure, p, h, J, shots)
     end_time = time.time()
     est_duration = (end_time - start_time) / n_loops
     print(f"Estimator Gradient Average Time: {est_duration:.6f} s")
@@ -87,7 +87,7 @@ def benchmark_qaoa_gradients():
     print("\n--- Benchmarking Finite Difference Gradient (Trivial) ---")
     start_time = time.time()
     for _ in tqdm(range(n_loops), desc="Finite Difference Gradient"):
-        grad_fd = optimizer._gradient(x_init, circuit, p, h, J, shots, method="finite_diff")
+        grad_fd = optimizer._gradient(x_init, circuit, p, h, J, shots)
     end_time = time.time()
     fd_duration = (end_time - start_time) / n_loops
     print(f"Finite Difference Gradient Average Time: {fd_duration:.6f} s")
