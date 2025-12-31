@@ -60,7 +60,7 @@ class ScipOptimizer(BaseOptimizer):
         # transaction cost
         transaction_flag = False
         if self.beta > 0.0:
-            print(f"SCIP: beta={self.beta}")
+            # print(f"SCIP: beta={self.beta}")
             transaction_flag = True
             if x0 is None:
                 x0 = np.zeros(n, dtype=int)

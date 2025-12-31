@@ -20,6 +20,7 @@ class BenchmarkConfig:
     asset_count : int
     stock_list : Union[None, List[str]]
     history_window : int
+    lam : float = 0.0 # risk aversion coefficient
     beta : float = 0.0 # transaction cost coefficient
     alpha : Optional[float] = None # penalty coefficient
     data_dir : Optional[str] = None
@@ -38,6 +39,7 @@ class BenchmarkConfig:
         return cls(
             start_date=data_cfg["start_date"],
             start_budget=problem_cfg["start_budget"],
+            lam=problem_cfg.get("lam", 0.0),
             beta=problem_cfg.get("beta", 0.0),
             max_iter=data_cfg["max_iter"],
             asset_count=asset_count,
@@ -201,6 +203,7 @@ class Benchmark():
         **kwargs,
     ) -> dict:
         budget = self.benchmark_config.start_budget
+        lam = self.benchmark_config.lam
         beta = self.benchmark_config.beta
         self.dataset.set_date(self.benchmark_config.start_date)
         current_date = pd.to_datetime(self.benchmark_config.start_date)
@@ -248,7 +251,7 @@ class Benchmark():
                 # Calculate the objective:
                 assets_change = best_x - (latest_best_x if latest_best_x is not None else np.zeros_like(best_x))
                 transaction_cost = beta * np.sum(open_prices * np.abs(assets_change))
-                objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
+                objective.append(float(mu @ best_x - lam * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
                 transaction_cost_history.append(transaction_cost)
                 best_xs.append(best_x)
                 latest_best_x = best_x
