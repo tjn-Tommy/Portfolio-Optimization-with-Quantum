@@ -1,6 +1,7 @@
 from typing import Callable, Optional, Sequence, Any, Dict
 
 import numpy as np
+from tqdm import tqdm
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import ParameterVector
 from scipy.optimize import minimize, OptimizeResult
@@ -10,20 +11,13 @@ from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_op
 from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
+from optimizer.utils.qubo_utils import normalize_ising_coeffs
 from optimizer.utils.noise_utils import build_aer_simulator
 from qiskit_aer.primitives import EstimatorV2
-
+import time
 
 GRADIENT_BASED_METHODS = {
-    "BFGS",
     "L-BFGS-B",
-    "CG",
-    "NEWTON-CG",
-    "DOGLEG",
-    "TRUST-NCG",
-    "TRUST-KRYLOV",
-    "TRUST-EXACT",
-    "TRUST-CONSTR",
     "TNC",
     "SLSQP",
 }
@@ -47,10 +41,12 @@ class QAOAOptimizer(BaseOptimizer):
         init_spread: float = 0.0,
         seed: Optional[int] = None,
         optimization_algorithm: str = "COBYLA",
-        grad_method: str = "param_shift",
+        grad_method: str = "shot_based",
         spsa_options: Optional[Dict[str, float]] = None,
         noise_config: Optional[Dict[str, Any]] = None,
         use_gpu: bool = False,
+        use_history: bool = False,
+        shift: float = 0.05,
     ):
         super().__init__(lam, beta)
         self.alpha = alpha
@@ -72,10 +68,6 @@ class QAOAOptimizer(BaseOptimizer):
         if use_gpu:
             # 1. 强制使用 GPU
             self.backend.set_options(device='GPU')
-            
-            # 2. 关键：设置精度为单精度
-            # "single": complex64 (对应 float32)
-            # "double": complex128 (对应 float64) - 默认值
             self.backend.set_options(precision='single', cuStateVec_enable=True) 
 
             
@@ -86,11 +78,15 @@ class QAOAOptimizer(BaseOptimizer):
             "run_options":{"shots": None, "seed": 42},
             "backend_options":{
                 "method": "statevector",      
-                "device": "GPU",              
+                "device": "GPU" if use_gpu else "CPU",              
                 "precision": "single",        
                 "cuStateVec_enable": True 
             },}
             )
+        self.use_history = use_history
+        self.history = None
+        self.shift = shift
+        
 
     @classmethod
     def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "QAOAOptimizer":
@@ -112,10 +108,12 @@ class QAOAOptimizer(BaseOptimizer):
                 "optimization_algorithm",
                 cfg.get("optimzation_algorithm", "COBYLA"),
             ),
-            grad_method=cfg.get("grad_method", "param_shift"),
+            grad_method=cfg.get("grad_method", "shot_based"),
             spsa_options=cfg.get("spsa"),
             noise_config=cfg.get("noise"),
             use_gpu=cfg.get("use_gpu", False),
+            use_history=cfg.get("use_history", False),
+            shift=cfg.get("shift", 0.05),
         )
 
     def qubo_factor(
@@ -329,10 +327,9 @@ class QAOAOptimizer(BaseOptimizer):
         h: np.ndarray,
         J: np.ndarray,
         shots: int,
-        method: str,
     ) -> np.ndarray:
         num_params = len(x_init)
-        
+        # start_time = time.time()
         # --- 1. 构建参数矩阵 (Batching) ---
         # 我们不再创建 list of dicts，而是创建一个大的 numpy array
         # 形状: (2 * num_params, num_params)
@@ -360,7 +357,8 @@ class QAOAOptimizer(BaseOptimizer):
         
         # --- 6. 计算梯度 ---
         gradients = (evs[0::2] - evs[1::2]) / (2.0 * self.grad_delta)
-        
+        # end_time = time.time()
+        # print(f"Gradient computed in {end_time - start_time:.2f} seconds.")
         return gradients
 
     # --- 优化点 2: 目标函数 ---
@@ -413,9 +411,7 @@ class QAOAOptimizer(BaseOptimizer):
         h: np.ndarray,
         J: np.ndarray,
         shots: int,
-        method: str,
     ) -> np.ndarray:
-        method_key = (method or "").lower()
         step = float(self.grad_delta)
         if step <= 0:
             raise ValueError("grad_delta must be positive for finite_diff.")
@@ -497,12 +493,16 @@ class QAOAOptimizer(BaseOptimizer):
         seed: Optional[int] = None,
         optimization_algorithm: Optional[str] = None,
         grad_method: Optional[str] = None,
+        **kwargs,
     ) -> Optional[np.ndarray]:
         n = len(mu)
         self.num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
-        
+
         Q, L, constant = self.qubo_factor(n, mu, sigma, prices, self.num_spins, budget, x0)
         h, J, C = self.get_ising_coeffs(Q, L, constant)
+        h, J, C= normalize_ising_coeffs(h, J, C)
+        
+        outer_pbar = kwargs.get("outer_pbar")
 
         # 参数设置
         chosen_p = p if p is not None else self.p
@@ -516,6 +516,7 @@ class QAOAOptimizer(BaseOptimizer):
             if optimization_algorithm is not None
             else self.optimization_algorithm
         )
+        bounds = [(0, 2*np.pi)] * (2 * chosen_p)
         if not chosen_algorithm:
             chosen_algorithm = "COBYLA"
         chosen_grad_method = grad_method if grad_method is not None else self.grad_method
@@ -530,9 +531,22 @@ class QAOAOptimizer(BaseOptimizer):
             )
         
         # 构建电路
-        circuit = self._build_circuit(chosen_p, h, J)
+        circuit = self._build_circuit(chosen_p, h, J) 
+        circuit_no_measure = self._build_circuit(chosen_p, h, J, measure=False)
         circuit = transpile(circuit, self.backend)
-
+        circuit_no_measure = transpile(circuit_no_measure, self.backend)
+        if self.use_history and self.history is not None:
+            initial_betas = self.history.get("betas", initial_betas)
+            initial_gammas = self.history.get("gammas", initial_gammas)
+            # add gussian noise around previous best
+            if initial_betas is not None:
+                initial_betas = np.array(initial_betas) + np.random.normal(
+                    scale=self.shift, size=chosen_p
+                )
+            if initial_gammas is not None:
+                initial_gammas = np.array(initial_gammas) + np.random.normal(
+                    scale=self.shift, size=chosen_p
+                )
         base_params = self._initial_params(chosen_p, initial_betas, initial_gammas)
         rng = np.random.default_rng(chosen_seed)
         best_solution = None
@@ -541,6 +555,9 @@ class QAOAOptimizer(BaseOptimizer):
             params, circuit, chosen_p, h, J, chosen_shots
         )
 
+        total_iterations = 0
+        metadata = kwargs.get("metadata", {})
+
         for trial in range(chosen_trials):
             x_init = base_params.copy()
             if trial > 0 and chosen_spread > 0:
@@ -548,32 +565,52 @@ class QAOAOptimizer(BaseOptimizer):
 
             if use_spsa:
                 sol = self._optimize_spsa(objective_fn, x_init, chosen_maxiter, rng)
+                total_iterations += sol.nit
             else:
                 jac = None
                 if requires_gradient:
-                    if grad_method_key == "shot_based" 
+                    if grad_method_key == "shot_based":
                         jac = lambda x, *args: self._gradient(
-                            x, *args, method="finite_diff"
+                            x, circuit, chosen_p, h, J, chosen_shots,
                         )
                     elif grad_method_key == "estimator":
                         jac = lambda x, *args: self._gradient_estimator(
-                            x, *args, method=grad_method_key
+                            x,  circuit_no_measure, chosen_p, h, J, chosen_shots,
                         )
+                # 创建进度条
+                # pbar = tqdm(total=chosen_maxiter, desc=f"Trial {trial+1}/{chosen_trials}", leave=False)
+                current_iter = [0]  # 使用列表以便在闭包中修改
+                
+                def callback(xk):
+                    current_iter[0] += 1
+                    # pbar.update(1)
+                    # 计算当前目标函数值用于显示
+                    # current_val = objective_fn(xk)
+                    # pbar.set_postfix({"obj": f"{current_val:.4e}"})
+                
                 minimize_kwargs = {
                     "x0": x_init,
-                    "args": (circuit, chosen_p, h, J, chosen_shots),
                     "method": chosen_algorithm,
                     "options": {"maxiter": chosen_maxiter},
                     "tol": 1e-4,
+                    "bounds": bounds,
+                    "callback": callback,
                 }
                 if jac is not None:
                     minimize_kwargs["jac"] = jac
 
-                sol = minimize(self._objective, **minimize_kwargs)
+                sol = minimize(objective_fn, **minimize_kwargs)
+                # pbar.close()
+                total_iterations += sol.nit
 
             if np.isfinite(sol.fun) and sol.fun < best_value:
                 best_value = sol.fun
                 best_solution = sol
+
+        if "iterations" in metadata:
+             metadata["iterations"] += total_iterations
+        else:
+             metadata["iterations"] = total_iterations
 
         if best_solution is None:
             return None
@@ -582,6 +619,12 @@ class QAOAOptimizer(BaseOptimizer):
         best_params = best_solution.x
         betas = best_params[:chosen_p]
         gammas = best_params[chosen_p:]
+        if self.use_history:
+            self.history={
+                "betas": betas,
+                "gammas": gammas,
+                "objective_value": best_value
+            }
         bind_dict = self._build_bind_dict(circuit, chosen_p, betas, gammas)
         counts = self._run_counts(circuit, bind_dict, chosen_shots)
         

@@ -4,6 +4,7 @@ import os
 import json
 from pathlib import Path
 
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -215,51 +216,76 @@ class Benchmark():
         iterations = 0
         prefix = f"[{name}] " if name else ""
 
-        while current_date is not None and self.dataset.has_next() and iterations < self.benchmark_config.max_iter:
-            mu = np.array(self.dataset.get_mu(self.benchmark_config.history_window))
-            sigma = np.array(self.dataset.get_cov(self.benchmark_config.history_window))
-            open_prices = np.array(self.dataset.get_open_price())
+        # Calculate total iterations based on available dates and max_iter
+        all_dates = self.dataset.all_close_prices.index.sort_values()
+        future_dates = all_dates[all_dates > pd.to_datetime(self.benchmark_config.start_date)]
+        available_dates = len(future_dates) - 1  # -1 because we need has_next() to be True
+        total_iter = min(available_dates, self.benchmark_config.max_iter)
+        
+        # Setup logging
+        log_dir = Path("log")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = self._sanitize_name(name)
+        log_file = log_dir / f"benchmark_{safe_name}_{timestamp}.log"
 
-            if mu is None or sigma is None or open_prices is None or len(mu) == 0:
-                break
+        pbar = tqdm(total=total_iter, desc=f"{prefix}Benchmark Progress")
+        
+        with open(log_file, "w") as log_f:
+            while current_date is not None and self.dataset.has_next() and iterations < self.benchmark_config.max_iter:
+                mu = np.array(self.dataset.get_mu(self.benchmark_config.history_window))
+                sigma = np.array(self.dataset.get_cov(self.benchmark_config.history_window))
+                open_prices = np.array(self.dataset.get_open_price())
 
-            best_x = optimizer(mu, open_prices, sigma, budget, latest_best_x, **kwargs)
-            # Calculate the objective:
-            assets_change = best_x - (latest_best_x if latest_best_x is not None else np.zeros_like(best_x))
-            transaction_cost = beta * np.sum(open_prices * np.abs(assets_change))
-            objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
-            transaction_cost_history.append(transaction_cost)
-            best_xs.append(best_x)
-            latest_best_x = best_x
+                if mu is None or sigma is None or open_prices is None or len(mu) == 0:
+                    break
+                
+                # Update pbar description/postfix before optimization so we see what's happening
+                pbar.set_postfix({"date": current_date.strftime("%Y-%m-%d"), "budget": f"{budget:.2f}"}, refresh=True)
 
-            print(f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, transaction cost: {transaction_cost:.8f}, budget: {budget:.8f}")
+                metadata = {}
+                best_x = optimizer(mu, open_prices, sigma, budget, outer_pbar=pbar, metadata=metadata, **kwargs)
+                # Calculate the objective:
+                assets_change = best_x - (latest_best_x if latest_best_x is not None else np.zeros_like(best_x))
+                transaction_cost = beta * np.sum(open_prices * np.abs(assets_change))
+                objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
+                transaction_cost_history.append(transaction_cost)
+                best_xs.append(best_x)
+                latest_best_x = best_x
 
-            if best_x is None:
-                print(f"{prefix}Optimization failed for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
-                break
+                log_msg = f"{prefix}On date {current_date.strftime('%Y-%m-%d')} best x is {best_x}, objective value: {objective[-1]:.8f}, transaction cost: {transaction_cost:.8f}, budget: {budget:.8f}, iterations: {metadata.get('iterations', 'N/A')}\n"
+                log_f.write(log_msg)
+                log_f.flush()
 
-            close_prices = self.dataset.get_close_price()
-            if close_prices is None:
-                print(f"{prefix}Could not get close prices for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
-                break
+                if best_x is None:
+                    print(f"{prefix}Optimization failed for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
+                    break
 
-            try:
-                budget = budget + best_x @ (close_prices - open_prices) - transaction_cost
-            except ValueError as e:
-                print(f"{prefix}Error calculating new budget on date {current_date.strftime('%Y-%m-%d')}: {e}")
-                print(f"{prefix}best_x shape: {best_x.shape}, close_prices shape: {close_prices.shape}")
-                break
+                close_prices = self.dataset.get_close_price()
+                if close_prices is None:
+                    print(f"{prefix}Could not get close prices for date {current_date.strftime('%Y-%m-%d')}. Stopping benchmark.")
+                    break
 
-            # final transaction cost update
-            transaction_cost = beta * np.sum(open_prices * best_x)
-            budget -= transaction_cost
+                try:
+                    budget = budget + best_x @ (close_prices - open_prices) - transaction_cost
+                except ValueError as e:
+                    print(f"{prefix}Error calculating new budget on date {current_date.strftime('%Y-%m-%d')}: {e}")
+                    print(f"{prefix}best_x shape: {best_x.shape}, close_prices shape: {close_prices.shape}")
+                    break
 
-            budget_history.append(budget)
-            date_history.append(pd.to_datetime(current_date))
+                # final transaction cost update
+                transaction_cost = beta * np.sum(open_prices * best_x)
+                budget -= transaction_cost
 
-            current_date = self.dataset.next_date()
-            iterations += 1
+                budget_history.append(budget)
+                date_history.append(pd.to_datetime(current_date))
 
+                current_date = self.dataset.next_date()
+                iterations += 1
+                pbar.update(1)
+                pbar.set_postfix({"date": current_date.strftime("%Y-%m-%d") if current_date else "Done", "budget": f"{budget:.2f}"})
+
+        pbar.close()
         return {
             "name": name,
             "date_history": date_history,
