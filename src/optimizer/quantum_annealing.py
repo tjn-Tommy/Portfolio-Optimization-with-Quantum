@@ -149,7 +149,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self._params_h = ParameterVector("h", num_spins)
         interactions = []
         for i in range(num_spins):
-            for j in range(num_spins):
+            for j in range(i, num_spins):
                 interactions.append((i, j))
         
         self._params_J = ParameterVector("J", len(interactions))
@@ -168,11 +168,6 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         # Trotter Loop
         for step in range(self.steps):
             s = step / self.steps
-            
-            # =========================================================
-            # 2阶 Trotter (Suzuki-Trotter): 
-            # Sequence: [Half X] -> [Full Z] -> [Half X]
-            # =========================================================
 
             # --- [Step A] 前半步横向场 (Half X) ---
             # Angle = -2 * B * (1-s) * (dt / 2)
@@ -190,7 +185,6 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
                 qc.rz(h_params_list[i] * z_coeff, i)
         
             # 2. Quadratic terms (Rzz -> CNOT-Rz-CNOT) - 全矩阵遍历
-            # 这里我们直接遍历 idx，它对应 interactions 列表中的 (i, j)
             for idx, (i, j) in enumerate(interactions):
                 if i == j:
                     continue                
@@ -206,7 +200,6 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         qc.measure_all()
         
         # 3. 编译电路
-        # 使用 level 1 或 2 均可，level 2 会稍微压缩一下相邻的 RX 门
         transpiled_qc = transpile(qc, self.backend, optimization_level=2)
         return transpiled_qc
 

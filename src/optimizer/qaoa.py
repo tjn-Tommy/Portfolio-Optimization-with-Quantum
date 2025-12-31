@@ -11,6 +11,7 @@ from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from optimizer.utils.noise_utils import build_aer_simulator
+from qiskit_aer.primitives import EstimatorV2
 
 
 GRADIENT_BASED_METHODS = {
@@ -26,8 +27,7 @@ GRADIENT_BASED_METHODS = {
     "TNC",
     "SLSQP",
 }
-VALID_GRAD_METHODS = {"param_shift", "finite_diff"}
-PARAM_SHIFT = np.pi / 2.0
+VALID_GRAD_METHODS = {"shot_based", "estimator"}
 
 
 class QAOAOptimizer(BaseOptimizer):
@@ -76,10 +76,21 @@ class QAOAOptimizer(BaseOptimizer):
             # 2. 关键：设置精度为单精度
             # "single": complex64 (对应 float32)
             # "double": complex128 (对应 float64) - 默认值
-            self.backend.set_options(precision='single') 
+            self.backend.set_options(precision='single', cuStateVec_enable=True) 
+
             
             print("✅ GPU Acceleration enabled with Single Precision.")
         self.num_spins = 0
+        self.estimator = EstimatorV2(
+            options={
+            "run_options":{"shots": None, "seed": 42},
+            "backend_options":{
+                "method": "statevector",      
+                "device": "GPU",              
+                "precision": "single",        
+                "cuStateVec_enable": True 
+            },}
+            )
 
     @classmethod
     def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "QAOAOptimizer":
@@ -163,11 +174,7 @@ class QAOAOptimizer(BaseOptimizer):
             x0=x0
         )
 
-    @property
-    def optimizer(self) -> Callable:
-        return self.optimize
-    
-    def _build_circuit(self, p: int, h: np.ndarray, J: np.ndarray) -> QuantumCircuit:
+    def _build_circuit(self, p: int, h: np.ndarray, J: np.ndarray, measure: bool=True) -> QuantumCircuit:
         betas = ParameterVector("betas", p)
         gammas = ParameterVector("gammas", p)
         qc = QuantumCircuit(self.num_spins)
@@ -180,13 +187,14 @@ class QAOAOptimizer(BaseOptimizer):
             for i in range(self.num_spins):
                 for j in range(i + 1, self.num_spins):
                     if J[i, j] != 0:
-                        qc.cx(i, j)
-                        qc.rz(gammas[layer] * 2 * J[i, j], j)
-                        qc.cx(i, j)
+                        # qc.cx(i, j)
+                        # qc.rz(gammas[layer] * 2 * J[i, j], j)
+                        # qc.cx(i, j)
+                        qc.rzz(gammas[layer] * 2 * J[i, j], i, j)
             for i in range(self.num_spins):
                 qc.rx(betas[layer] * 2, i)
-
-        qc.measure_all()
+        if measure:
+            qc.measure_all()
         return qc
 
     def _build_bind_dict(
@@ -229,14 +237,14 @@ class QAOAOptimizer(BaseOptimizer):
         initial_gammas: Optional[Sequence[float]],
     ) -> np.ndarray:
         if initial_betas is None:
-            betas = 0.05 * np.linspace(1, 0, p)
+            betas = 1 * np.linspace(1, 0, p)
         else:
             betas = np.asarray(initial_betas, dtype=float)
             if betas.size != p:
                 raise ValueError("initial_betas must have length p")
 
         if initial_gammas is None:
-            gammas = 0.05 * np.linspace(0, 1, p)
+            gammas = 1 * np.linspace(0, 1, p)
         else:
             gammas = np.asarray(initial_gammas, dtype=float)
             if gammas.size != p:
@@ -247,18 +255,16 @@ class QAOAOptimizer(BaseOptimizer):
     def _get_hamiltonian(self, h: np.ndarray, J: np.ndarray) -> SparsePauliOp:
         num_qubits = len(h)
         pauli_list = []
-        
-        # 线性项 h * Z_i
+    
         for i, coeff in enumerate(h):
             if abs(coeff) > 1e-8:
                 pauli_str = ["I"] * num_qubits
                 pauli_str[num_qubits - 1 - i] = "Z" # Qiskit 是 Little Endian，索引要反转
                 pauli_list.append(("".join(pauli_str), coeff))
         
-        # 二次项 J * Z_i * Z_j
         rows, cols = np.nonzero(J)
         for i, j in zip(rows, cols):
-            if i < j: # 只取上三角，避免重复
+            if i < j: 
                 coeff = J[i, j]
                 if abs(coeff) > 1e-8:
                     pauli_str = ["I"] * num_qubits
@@ -290,8 +296,6 @@ class QAOAOptimizer(BaseOptimizer):
             return float("inf")
             
         # 2. 向量化转换：Bitstring (str) -> Spins (numpy array)
-        # 这是一个技巧：将字符串列表转为字符矩阵，再转为 int
-        # 注意：Qiskit 的 bitstring 是从右到左对应 qubit 0 到 N
         n_spins = len(h)
         
         # 创建字符矩阵 (M samples x N spins)
@@ -308,19 +312,56 @@ class QAOAOptimizer(BaseOptimizer):
         spins_matrix = np.flip(spins_matrix, axis=1)
 
         # 3. 向量化计算能量
-        # E = h . s + s . J . s^T
-        # term1: (M, N) @ (N,) -> (M,)
         term1 = spins_matrix @ h
-        
-        # term2: 逐元素计算二次项
-        # (spins @ J) 得到 (M, N)，然后与 spins (M, N) 逐元素相乘并求和
         term2 = np.sum((spins_matrix @ J) * spins_matrix, axis=1)
-        
         energies = term1 + term2
         
         # 4. 加权平均
         avg_energy = np.sum(energies * freqs) / total_shots
         return float(avg_energy)
+
+
+    def _gradient_estimator(  # 修正拼写: gradiant -> gradient, estimater -> estimator
+        self,
+        x_init: np.ndarray,
+        circ: QuantumCircuit,
+        p: int,
+        h: np.ndarray,
+        J: np.ndarray,
+        shots: int,
+        method: str,
+    ) -> np.ndarray:
+        num_params = len(x_init)
+        
+        # --- 1. 构建参数矩阵 (Batching) ---
+        # 我们不再创建 list of dicts，而是创建一个大的 numpy array
+        # 形状: (2 * num_params, num_params)
+        batch_params = np.empty((2 * num_params, num_params))
+        
+        for i in range(num_params):
+            # x + delta
+            batch_params[2 * i] = x_init.copy()
+            batch_params[2 * i, i] += self.grad_delta
+            
+            # x - delta
+            batch_params[2 * i + 1] = x_init.copy()
+            batch_params[2 * i + 1, i] -= self.grad_delta
+
+        # --- 3. 构建单一 PUB (Broadcasting) ---
+        hamiltonian = self._get_hamiltonian(h, J)
+        pub = (circ, hamiltonian, batch_params)
+        
+        # --- 4. 一次性执行 ---
+        job = self.estimator.run([pub]) 
+        result = job.result()
+        
+        # --- 5. 获取结果 ---
+        evs = result[0].data.evs
+        
+        # --- 6. 计算梯度 ---
+        gradients = (evs[0::2] - evs[1::2]) / (2.0 * self.grad_delta)
+        
+        return gradients
 
     # --- 优化点 2: 目标函数 ---
     def _objective(
@@ -375,16 +416,10 @@ class QAOAOptimizer(BaseOptimizer):
         method: str,
     ) -> np.ndarray:
         method_key = (method or "").lower()
-        if method_key == "finite_diff":
-            step = float(self.grad_delta)
-            if step <= 0:
-                raise ValueError("grad_delta must be positive for finite_diff.")
-            scale = 1.0 / (2.0 * step)
-        elif method_key == "param_shift":
-            step = PARAM_SHIFT
-            scale = 0.5
-        else:
-            raise ValueError(f"Unsupported grad_method: {method}")
+        step = float(self.grad_delta)
+        if step <= 0:
+            raise ValueError("grad_delta must be positive for finite_diff.")
+        scale = 1.0 / (2.0 * step)
 
         param_sets = []
         for i in range(len(x_init)):
@@ -516,10 +551,14 @@ class QAOAOptimizer(BaseOptimizer):
             else:
                 jac = None
                 if requires_gradient:
-                    jac = lambda x, *args: self._gradient(
-                        x, *args, method=grad_method_key
-                    )
-
+                    if grad_method_key == "shot_based" 
+                        jac = lambda x, *args: self._gradient(
+                            x, *args, method="finite_diff"
+                        )
+                    elif grad_method_key == "estimator":
+                        jac = lambda x, *args: self._gradient_estimator(
+                            x, *args, method=grad_method_key
+                        )
                 minimize_kwargs = {
                     "x0": x_init,
                     "args": (circuit, chosen_p, h, J, chosen_shots),

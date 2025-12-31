@@ -88,24 +88,27 @@ class Benchmark():
 
     def _plot_history(
         self,
-        name: str,
-        date_history: Sequence[pd.Timestamp],
-        budget_history: Sequence[float],
+        result: dict,
         timestamp: str,
     ) -> None:
+        name = result.get("name", "optimizer")
+        date_history = result.get("date_history", [])
+        budget_history = result.get("budget_history", [])
+        objective_history = result.get("objective", [])
+        transaction_cost_history = result.get("transaction_cost_history", [])
+
         if not date_history:
-            print("No budget history to plot.")
+            print("No history to plot.")
             return
 
         result_dir = self.benchmark_config.result_dir or "result"
         os.makedirs(result_dir, exist_ok=True)
         safe_name = self._sanitize_name(name)
-        filename = f"{safe_name}_{timestamp}.png"
 
+        # Plot Budget
+        filename_budget = f"{safe_name}_budget_{timestamp}.png"
         plt.figure(figsize=(12, 6))
-        title = "Budget Evolution Over Time"
-        if name:
-            title = f"{title} ({name})"
+        title = f"Budget Evolution Over Time ({name})"
         plt.title(title)
         plt.plot(date_history, budget_history, marker="o", linestyle="-")
         plt.xlabel("Date")
@@ -113,8 +116,41 @@ class Benchmark():
         plt.grid(True)
         plt.xticks(rotation=45)
         plt.tight_layout()
-        plt.savefig(os.path.join(result_dir, filename), dpi=600)
+        plt.savefig(os.path.join(result_dir, filename_budget), dpi=600)
         plt.close()
+
+        # Plot Objective
+        if objective_history:
+            # Ensure lengths match
+            length = min(len(date_history), len(objective_history))
+            filename_obj = f"{safe_name}_objective_{timestamp}.png"
+            plt.figure(figsize=(12, 6))
+            title = f"Objective Evolution Over Time ({name})"
+            plt.title(title)
+            plt.plot(date_history[:length], objective_history[:length], marker="o", linestyle="-", color="orange")
+            plt.xlabel("Date")
+            plt.ylabel("Objective")
+            plt.grid(True)
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig(os.path.join(result_dir, filename_obj), dpi=600)
+            plt.close()
+
+        # Plot Transaction Cost
+        if transaction_cost_history:
+            length = min(len(date_history), len(transaction_cost_history))
+            filename_tc = f"{safe_name}_transaction_cost_{timestamp}.png"
+            plt.figure(figsize=(12, 6))
+            title = f"Transaction Cost Evolution Over Time ({name})"
+            plt.title(title)
+            plt.plot(date_history[:length], transaction_cost_history[:length], marker="o", linestyle="-", color="green")
+            plt.xlabel("Date")
+            plt.ylabel("Transaction Cost")
+            plt.grid(True)
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig(os.path.join(result_dir, filename_tc), dpi=600)
+            plt.close()
 
     def _plot_compare(
         self,
@@ -124,59 +160,38 @@ class Benchmark():
         result_dir = self.benchmark_config.result_dir or "result"
         os.makedirs(result_dir, exist_ok=True)
 
-        # plot budget change
-        plt.figure(figsize=(12, 6))
-        has_series = False
-        for result in results:
-            name = result.get("name") or "optimizer"
-            dates = result.get("date_history", [])
-            budgets = result.get("budget_history", [])
-            if not dates:
-                continue
-            has_series = True
-            plt.plot(dates, budgets, marker="o", linestyle="-", label=name)
+        def plot_metric(metric_key, title, ylabel, filename_suffix):
+            plt.figure(figsize=(12, 6))
+            has_series = False
+            for result in results:
+                name = result.get("name") or "optimizer"
+                dates = result.get("date_history", [])
+                values = result.get(metric_key, [])
+                if not dates or not values:
+                    continue
+                length = min(len(dates), len(values))
+                has_series = True
+                plt.plot(dates[:length], values[:length], marker="o", linestyle="-", label=name)
 
-        if not has_series:
-            print("No budget history to plot.")
-            return
+            if not has_series:
+                # print(f"No {metric_key} history to plot.")
+                plt.close()
+                return
 
-        plt.title("Budget Evolution Comparison")
-        plt.xlabel("Date")
-        plt.ylabel("Budget")
-        plt.grid(True)
-        plt.xticks(rotation=45)
-        plt.legend()
-        plt.tight_layout()
-        filename = f"compare_{timestamp}.png"
-        plt.savefig(os.path.join(result_dir, filename), dpi=600)
-        plt.close()
+            plt.title(title)
+            plt.xlabel("Date")
+            plt.ylabel(ylabel)
+            plt.grid(True)
+            plt.xticks(rotation=45)
+            plt.legend()
+            plt.tight_layout()
+            filename = f"compare_{filename_suffix}_{timestamp}.png"
+            plt.savefig(os.path.join(result_dir, filename), dpi=600)
+            plt.close()
 
-        # plot objective change
-        plt.figure(figsize=(12, 6))
-        has_series = False
-        for result in results:
-            name = result.get("name") or "optimizer"
-            dates = result.get("date_history", [])
-            objectives = result.get("objective", [])
-            if not dates:
-                continue
-            has_series = True
-            plt.plot(dates, objectives, marker="o", linestyle="-", label=name)
-
-        if not has_series:
-            print("No objective history to plot.")
-            return
-
-        plt.title("Objective Evolution Comparison")
-        plt.xlabel("Date")
-        plt.ylabel("Objective")
-        plt.grid(True)
-        plt.xticks(rotation=45)
-        plt.legend()
-        plt.tight_layout()
-        filename = f"compare_objective_{timestamp}.png"
-        plt.savefig(os.path.join(result_dir, filename), dpi=600)
-        plt.close()
+        plot_metric("budget_history", "Budget Evolution Comparison", "Budget", "budget")
+        plot_metric("objective", "Objective Evolution Comparison", "Objective", "objective")
+        plot_metric("transaction_cost_history", "Transaction Cost Comparison", "Transaction Cost", "transaction_cost")
 
     def _run_single(
         self,
@@ -192,6 +207,7 @@ class Benchmark():
         budget_history = [budget]
         date_history = [current_date]
         objective = [0.0]
+        transaction_cost_history = [0.0]
         best_xs = []
         latest_best_x = None
 
@@ -212,6 +228,7 @@ class Benchmark():
             assets_change = best_x - (latest_best_x if latest_best_x is not None else np.zeros_like(best_x))
             transaction_cost = beta * np.sum(open_prices * np.abs(assets_change))
             objective.append(float(mu @ best_x - 0.5 * best_x @ sigma @ best_x - beta * np.sum(np.abs(assets_change))))
+            transaction_cost_history.append(transaction_cost)
             best_xs.append(best_x)
             latest_best_x = best_x
 
@@ -248,6 +265,7 @@ class Benchmark():
             "date_history": date_history,
             "budget_history": budget_history,
             "objective": objective,
+            "transaction_cost_history": transaction_cost_history,
             "best_xs": best_xs,
         }
 
@@ -262,7 +280,7 @@ class Benchmark():
 
         for name, opt_fn in optimizers:
             result = self._run_single(opt_fn, name, **kwargs)
-            self._plot_history(name, result["date_history"], result["budget_history"], timestamp)
+            self._plot_history(result, timestamp)
             results.append(result)
 
         if len(results) > 1:

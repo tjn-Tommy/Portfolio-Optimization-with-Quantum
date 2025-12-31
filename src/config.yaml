@@ -4,7 +4,7 @@ data:
   stock_list:
     - AAPL
     - MSFT
-    - GOOGL
+    # - GOOGL
     # - AMZN
     # - META
   history_window: 100
@@ -12,7 +12,7 @@ data:
   result_dir: "./result"
 
 problem:
-  start_budget: 1000
+  start_budget: 500
   lam: 0.1
   beta: 0.001
 
@@ -25,7 +25,7 @@ solvers:
 quantum_annealing:
   alpha: 5.0
   bits_per_asset: 2
-  bits_slack: 8
+  bits_slack: 4
   time: 10
   steps: 100
   traverse: 1.0
@@ -39,10 +39,10 @@ quantum_annealing:
 
 qaoa:
   alpha: 5.0
-  bits_per_asset: 3
-  bits_slack: 8
+  bits_per_asset: 2
+  bits_slack: 2
   transact_opt: "exact"
-  p: 1
+  p: 10
   shots: 1000
   n_trials: 1
   maxiter: 100
@@ -50,13 +50,13 @@ qaoa:
   init_spread: 0.0
   seed: null
   optimization_algorithm: "SPSA"
-  grad_method: "param_shift"
+  grad_method: "estimator"
   noise: null
-  use_gpu: false
+  use_gpu: true
 
 tensor_network:
   alpha: 5.0
-  bits_per_asset: 3
+  bits_per_asset: 2
   bits_slack: 8
   transact_opt: "exact"
   method: "dmrg"
