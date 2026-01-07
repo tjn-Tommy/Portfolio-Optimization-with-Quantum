@@ -152,6 +152,7 @@ def qubo_factor(
     transact_opt = "quadratic": use quadratic penalty to approximate |x_i - x_i^0|
     transact_opt = "exact": use exact formulation with additional variables.
     '''
+    prices = np.ceil(prices).astype(float)  # ensure prices are integers
     Q0 = lam * sigma + alpha * np.outer(prices, prices)
     L0 = -mu - 2 * alpha * budget * prices
     constant = alpha * budget * budget

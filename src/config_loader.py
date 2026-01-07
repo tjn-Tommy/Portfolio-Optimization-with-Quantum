@@ -9,6 +9,7 @@ from optimizer.qaoa import QAOAOptimizer
 from optimizer.quantum_annealing import QuantumAnnealingOptimizer
 from optimizer.scip_solver import ScipOptimizer
 from optimizer.tensor_network import TensorNetworkOptimizer
+from optimizer.qaoa_penny import QAOAOptimizerJAX
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -53,4 +54,5 @@ _SOLVER_CLASSES: Dict[str, Type[BaseOptimizer]] = {
     "qaoa": QAOAOptimizer,
     "tensor_network": TensorNetworkOptimizer,
     "scip": ScipOptimizer,
+    "qaoa_jax": QAOAOptimizerJAX,
 }

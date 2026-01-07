@@ -47,10 +47,10 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             # "single": complex64 (对应 float32)
             # "double": complex128 (对应 float64) - 默认值
             self.backend.set_options(precision='single',
-                                     batched_shots_gpu=True,
-                                     max_shot_size=1000,
-                                    #  cuStateVec_enable=True,
-                                     batched_shots_gpu_max_qubits=22,
+                                    #  batched_shots_gpu=True,
+                                    #  max_shot_size=1000,
+                                     cuStateVec_enable=True,
+                                    #  batched_shots_gpu_max_qubits=25,
                                      ) 
             
             print("✅ GPU Acceleration enabled with Single Precision.")
@@ -190,9 +190,10 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
                     continue                
                 # 应用 Rzz
                 angle = J_params_list[idx] * z_coeff
-                qc.cx(i, j)
-                qc.rz(angle, j)
-                qc.cx(i, j)
+                # qc.cx(i, j)
+                # qc.rz(angle, j)
+                # qc.cx(i, j)
+                qc.rzz(angle, i, j)
 
             # --- [Step C] 后半步横向场 (Half X) ---
             qc.rx(rx_angle_half, range(num_spins))
