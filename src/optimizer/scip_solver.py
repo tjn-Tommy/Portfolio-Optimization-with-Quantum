@@ -9,23 +9,26 @@ from optimizer.base import BaseOptimizer
 class ScipOptimizer(BaseOptimizer):
     def __init__(
         self,
-        risk_aversion: float,
         lam: float,
+        beta: Optional[float],
         upper_bounds: Union[list, np.ndarray, int],
         suppress_output: bool = True,
+        transact_opt: str = "ignore"
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(lam, beta)
         self.upper_bounds = upper_bounds
         self.suppress_output = suppress_output
+        self.transact_opt = transact_opt
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "ScipOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "ScipOptimizer":
         upper_bounds = cfg.get("upper_bounds")
         if upper_bounds is None:
             raise ValueError("scip.upper_bounds is required to build ScipOptimizer.")
         return cls(
-            risk_aversion=risk_aversion,
             lam=lam,
+            beta=beta,
+            transact_opt=cfg.get("transact_opt", "ignore"),
             upper_bounds=upper_bounds,
             suppress_output=cfg.get("suppress_output", True),
         )
@@ -40,6 +43,8 @@ class ScipOptimizer(BaseOptimizer):
         prices: np.ndarray,
         sigma: np.ndarray,
         budget: float,
+        x0: Optional[np.ndarray] = None,
+        **kwargs,
     ) -> Optional[np.ndarray]:
         n = len(mu)
         model = Model("mean_variance_mip")
@@ -53,12 +58,30 @@ class ScipOptimizer(BaseOptimizer):
         ]
         model.addCons(quicksum(prices[i] * x[i] for i in range(n)) <= budget)
 
+        # transaction cost
+        transaction_flag = False
+        if self.beta > 0.0:
+            # print(f"SCIP: beta={self.beta}")
+            transaction_flag = True
+            if x0 is None:
+                x0 = np.zeros(n, dtype=int)
+            z = []
+            for i in range(n):
+                zi = model.addVar(vtype="C", lb=0, name=f"abs_dev{i}")
+                model.addCons(zi >= x[i] - x0[i])
+                model.addCons(zi >= -(x[i] - x0[i]))
+                z.append(zi)
+            transaction_term = quicksum(self.beta * z[i] for i in range(n))
+
         objvar = model.addVar(vtype="C", name="objvar")
         linear_term = quicksum(mu[i] * x[i] for i in range(n))
         quadratic_term = quicksum(
             sigma[i, j] * x[i] * x[j] for i in range(n) for j in range(n)
         )
-        model.addCons(objvar - linear_term + self.lam * quadratic_term <= 0)
+        if transaction_flag:
+            model.addCons(objvar - linear_term + self.lam * quadratic_term + transaction_term <= 0)
+        else:
+            model.addCons(objvar - linear_term + self.lam * quadratic_term <= 0)
         model.setObjective(objvar, sense="maximize")
 
         model.optimize()

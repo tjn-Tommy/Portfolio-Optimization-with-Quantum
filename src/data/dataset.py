@@ -136,9 +136,9 @@ class StockDataset:
         
         if window is not None:
             historical_returns = historical_returns.tail(window)
-            print(f"Calculating covariance matrix using last {window} days of data before {self.simulation_date.strftime('%Y-%m-%d')}")
-        else:
-            print(f"Calculating covariance matrix using all available data before {self.simulation_date.strftime('%Y-%m-%d')}")
+        #     print(f"Calculating covariance matrix using last {window} days of data before {self.simulation_date.strftime('%Y-%m-%d')}")
+        # else:
+        #     print(f"Calculating covariance matrix using all available data before {self.simulation_date.strftime('%Y-%m-%d')}")
         
         if historical_returns.empty:
             print(f"Warning: No returns data available before {self.simulation_date.strftime('%Y-%m-%d')}.")
@@ -170,9 +170,9 @@ class StockDataset:
         
         if window is not None:
             historical_returns = historical_returns.tail(window)
-            print(f"Calculating mean returns using last {window} days of data before {self.simulation_date.strftime('%Y-%m-%d')}")
-        else:
-            print(f"Calculating mean returns using all available data before {self.simulation_date.strftime('%Y-%m-%d')}")
+            # print(f"Calculating mean returns using last {window} days of data before {self.simulation_date.strftime('%Y-%m-%d')}")
+        # else:
+            # print(f"Calculating mean returns using all available data before {self.simulation_date.strftime('%Y-%m-%d')}")
         
         if historical_returns.empty:
             print(f"Warning: No returns data available before {self.simulation_date.strftime('%Y-%m-%d')}.")
@@ -245,7 +245,7 @@ class StockDataset:
         # The next date is the first one in the sorted future dates
         next_available_date = future_dates.min()
         self.simulation_date = next_available_date
-        print(f"Simulation date advanced to: {self.simulation_date.strftime('%Y-%m-%d')}")
+        # print(f"Simulation date advanced to: {self.simulation_date.strftime('%Y-%m-%d')}")
         return self.simulation_date
     
     def has_next(self):

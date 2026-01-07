@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 from typing import Optional
 import argparse
+import json
 from benchmark.benchmark import Benchmark
 from config_loader import build_benchmark_config, build_optimizers, load_config
 

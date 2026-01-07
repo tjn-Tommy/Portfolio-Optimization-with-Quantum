@@ -1,64 +1,100 @@
 data:
-  start_date: "2024-06-01"
-  max_iter: 30
+  start_date: "2024-01-01"
+  max_iter: 60
   stock_list:
-    - AAPL
+    # - AAPL
     - MSFT
-    - GOOGL
-    - AMZN
+    - TSLA
     - META
+    - BA
+    - JNJ
+
+    # - AAPL
+    # - MSFT
+    # - GOOGL
+    # - AMZN
+    # - META
   history_window: 100
   data_dir: "./data"
   result_dir: "./result"
 
 problem:
   start_budget: 500
-  risk_aversion: 0.5
   lam: 0.1
+  beta: 0.001
 
 solvers:
-  # - quantum_annealing
-  # - qaoa
+  - qaoa
+  - quantum_annealing
   - tensor_network
   - scip
+  # - qaoa_jax
 
 quantum_annealing:
   alpha: 5.0
-  bits_per_asset: 3
-  bits_slack: 5
-  time: 10
-  steps: 100
+  bits_per_asset: 2
+  bits_slack: 9
+  time: 20
+  steps: 400
   traverse: 1.0
+  transact_opt: "quadratic"
   # noise:
   #   type: depolarizing
   #   p1: 0.001
   #   p2: 0.01
   #   readout: 0.02
+  use_gpu: true
 
 qaoa:
   alpha: 5.0
-  bits_per_asset: 3
-  bits_slack: 8
-  p: 1
+  bits_per_asset: 2
+  bits_slack: 9
+  transact_opt: "quadratic"
+  p: 15
   shots: 1000
   n_trials: 1
   maxiter: 100
   grad_delta: 0.01
-  init_spread: 0.0
+  init_spread: 0.05
   seed: null
-  use_gradient: true
+  optimization_algorithm: "L-BFGS-B"
+  grad_method: "estimator"
   noise: null
+  use_gpu: true
+  use_history: true
+  shift: 0.00
+
+qaoa_jax:
+  alpha: 5.0
+  bits_per_asset: 2
+  bits_slack: 9
+  transact_opt: "quadratic"
+  p: 20
+  shots: 1000
+  n_trials: 5
+  maxiter: 150
+  grad_delta: 0.01
+  init_spread: 0.05
+  seed: null
+  optimization_algorithm: "L-BFGS-B"
+  grad_method: "estimator"
+  noise: null
+  use_gpu: true
+  use_history: true
+  shift: 0.05
+
 
 tensor_network:
   alpha: 5.0
-  bits_per_asset: 3
-  bits_slack: 8
-  method: "variational_mps"
+  bits_per_asset: 2
+  bits_slack: 9
+  transact_opt: "quadratic"
+  method: "dmrg"
   mps_rank: 10
-  mps_bond_dim: 6
+  mps_bond_dim: 20
   mps_opt: 1
   mps_seed: 1
 
 scip:
-  upper_bounds: 8
+  upper_bounds: 4
   suppress_output: true

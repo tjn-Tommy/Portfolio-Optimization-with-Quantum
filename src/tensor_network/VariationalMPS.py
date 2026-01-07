@@ -39,6 +39,32 @@ def GetApproxMPO(J, h, R):
         W.append(Wp)
     return W
 
+def GetExactMPO(J, h):
+    L = J.shape[0]
+    D = L + 2
+
+    W = []
+    for p in range(L):
+        # physical ops
+        Id = np.eye(2)
+        Sz = np.array([[1.,0.],[0.,-1.]])
+
+        # W[p] has shape (D_left, D_right, d, d)
+        Wp = np.zeros((D, 2, D, 2), dtype=float)
+
+        # diagonal flow: carries no interaction
+        for i in range(D):
+            Wp[i,:,i,:] = Id
+        # L "channels"
+        for r in range(L):
+            Wp[0,:,1+r,:] = Sz        # output Sz for channel r
+            Wp[1+r,:,D-1,:] = J[r, p] * Sz  # channel r ending
+        # local field term h_i S_i^z
+        Wp[0,:,D-1,:] += h[p] * Sz
+        
+        W.append(Wp)
+    return W
+
 def InitMps(Ns,Dp,Ds,seed=None):
     if seed is not None:
         # print('seed:',seed)
@@ -80,11 +106,37 @@ def OptTSite1(Mpo,HL,HR,T):
     A = Sub.NCon([HL,Mpo,HR],[[-1,1,-4],[1,-5,2,-2],[-6,2,-3]])
     A = Sub.Group(A,[[0,1,2],[3,4,5]])
     A = 0.5 * (A + A.conj().T)
-    A += 1e-8 * np.eye(A.shape[0])  # regularization to avoid singular matrix
+    A += 1e-10 * np.eye(A.shape[0])  # regularization to avoid singular matrix
     # print(A.shape)
     w, v = LA.eigh(A)   # A 必须是 Hermitian
-    Eig = w[0]                # 最小特征值
-    V = v[:, 0]               # 对应特征向量
+    T_old = T.reshape(-1)
+    overlap = np.abs(v.conj().T @ T_old)
+    idx = np.argmax(overlap)
+    Eig = w[idx]
+    V = v[:, idx]
+
+    # Eig, V = LAs.eigsh(-A, k=1, which='LA')
+    # Eig = -Eig
+
+    # v0 = T.reshape(-1)
+    # norm = LA.norm(v0)
+    # if norm < 1e-12:
+    #     v0 = np.random.randn(v0.size)
+    #     v0 /= LA.norm(v0)
+    # else:
+    #     v0 /= norm
+
+    # Eig, V = LAs.eigsh(
+    #     A,
+    #     k=1,
+    #     which='SA',
+    #     v0=v0,
+    #     tol=1e-10,
+    #     # maxiter=5000
+    # )
+    # Eig = Eig[0]
+    # V = V[:, 0]
+
     T = np.reshape(V,DT)
     # print('Eig',Eig)
         
@@ -116,8 +168,8 @@ def OptT1(Mpo_list,HL,HR,T):
             HR[i-1] = Sub.NCon([HR[i],T[i],Mpo,np.conj(T[i])],[[1,3,5],[-1,2,1],[-2,2,3,4],[-3,4,5]])
             T[i-1] = np.tensordot(T[i-1],U,(2,0))
         
-        # print(Eng1)
-        if abs(Eng1[1]-Eng0[1]) < 1.0e-10:
+        # print(r, Eng1[0], Eng1[1])
+        if abs(Eng1[0]-Eng0[0]) < 1.0e-10:
             # print(f'Converged after {r} sweeps.')
             converge = True
             break
@@ -233,29 +285,41 @@ def ExpectationValue(op, pos, Ns, T):
     # print(L)
     return ans
 
-def VariationalMPS(J, h, R=10, Dp=2, Ds=6, opt=1, seed=None, max_trial=100):
+def VariationalMPS(J, h, R=10, Dp=2, Ds=6, opt=1, seed=None, max_trial=20):
     Ns = J.shape[0]
+    # print(Ns)
+    # print(J, h)
+    scaling = np.max(np.abs(J)) / 2
+    J = J / scaling
+    h = h / scaling
     assert len(h) == J.shape[1] == Ns
 
     converged = False
     for trial in range(max_trial):
         # print(f'Trial {trial+1}/{max_trial}')
         Mpo_list = GetApproxMPO(J, h, R)
+        # Mpo_list = GetExactMPO(J, h)
         T = InitMps(Ns, Dp, Ds, seed=seed)
         HL, HR = InitH(Mpo_list, T)
         if opt == 1:
             T, converged = OptT1(Mpo_list, HL, HR, T)
         elif opt == 2:
             T, converged = OptT2(Mpo_list, HL, HR, T)
-        if converged:
+
+        state = []
+        for i in range(Ns):
+            state.append(ExpectationValue(np.array([[1.,0.],[0.,-1.]]), i, Ns, T))
+        state = np.array(state)
+        state_int = np.round(state).astype(int)
+        eng = (np.sum(state_int * h) + np.sum(state_int[:, None] * J * state_int[None, :])) * scaling
+        print("Energy:", eng)
+        print("State:", state_int)
+        nonzero_flag = np.sum(np.abs(state_int)) > 0
+
+        if converged and nonzero_flag:
             break
         if seed is not None:
             seed += 1  # change seed for next trial
 
-    state = []
-    for i in range(Ns):
-        state.append(ExpectationValue(np.array([[1.,0.],[0.,-1.]]), i, Ns, T))
-    state_int = [int(np.round(s)) for s in state]
-    # print("State:", state_int)
     
     return T, state_int

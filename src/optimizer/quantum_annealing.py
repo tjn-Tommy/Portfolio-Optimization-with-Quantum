@@ -7,6 +7,8 @@ from contextlib import redirect_stdout
 from qiskit.circuit import ParameterVector
 from qiskit import QuantumCircuit, transpile
 from optimizer.base import BaseOptimizer
+from optimizer.utils.qubo_utils import compute_num_spins as compute_num_spins_optimized
+from optimizer.utils.qubo_utils import spins_to_asset_counts
 from optimizer.utils.qubo_utils import qubo_factor as qubo_factor_optimized
 from optimizer.utils.qubo_utils import get_ising_coeffs as get_ising_coeffs_optimized
 from optimizer.utils.qubo_utils import normalize_ising_coeffs
@@ -15,25 +17,43 @@ from optimizer.utils.noise_utils import build_aer_simulator
 class QuantumAnnealingOptimizer(BaseOptimizer):
     def __init__(
         self,
-        risk_aversion: float,
         lam: float,
         alpha: float,
+        beta: Optional[float],
         bits_per_asset: int,
         bits_slack: int,
         time: float = 10,
         steps: int = 100,
         traverse: float = 1.0,
+        transact_opt: str = "ignore",
         noise_config: Optional[Dict[str, Any]] = None,
+        use_gpu: bool = False,
     ):
-        super().__init__(risk_aversion, lam)
+        super().__init__(lam, beta)
         self.alpha = alpha
         self.bits_per_asset = bits_per_asset
         self.bits_slack = bits_slack
         self.time = time
         self.steps = steps
         self.traverse = traverse
+        self.transact_opt = transact_opt
         self.noise_config = noise_config
         self.backend = build_aer_simulator(noise_config)
+        if use_gpu:
+            # 1. 强制使用 GPU
+            self.backend.set_options(device='GPU')
+            
+            # 2. 关键：设置精度为单精度
+            # "single": complex64 (对应 float32)
+            # "double": complex128 (对应 float64) - 默认值
+            self.backend.set_options(precision='single',
+                                    #  batched_shots_gpu=True,
+                                    #  max_shot_size=1000,
+                                     cuStateVec_enable=True,
+                                    #  batched_shots_gpu_max_qubits=25,
+                                     ) 
+            
+            print("✅ GPU Acceleration enabled with Single Precision.")
 
         # === 缓存变量 ===
         self._cached_circuit: Optional[QuantumCircuit] = None
@@ -44,17 +64,19 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self._J_param_map: Dict[Tuple[int, int], int] = {}
 
     @classmethod
-    def init(cls, cfg: Dict[str, Any], risk_aversion: float, lam: float) -> "QuantumAnnealingOptimizer":
+    def init(cls, cfg: Dict[str, Any], lam: float, beta: Optional[float]) -> "QuantumAnnealingOptimizer":
         return cls(
-            risk_aversion=risk_aversion,
             lam=lam,
             alpha=cfg["alpha"],
+            beta=beta,
+            transact_opt=cfg.get("transact_opt", "ignore"),
             bits_per_asset=cfg["bits_per_asset"],
             bits_slack=cfg["bits_slack"],
             time=cfg.get("time", 10),
             steps=cfg.get("steps", 100),
             traverse=cfg.get("traverse", 1.0),
             noise_config=cfg.get("noise"),
+            use_gpu=cfg.get("use_gpu", False),
         )
 
     def qubo_factor(self, 
@@ -63,7 +85,8 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
                     sigma: np.ndarray, 
                     prices: np.ndarray, 
                     n_spins: int, 
-                    budget: float
+                    budget: float,
+                    x0: Optional[np.ndarray] = None
                     ):
         return qubo_factor_optimized(
             n=n,
@@ -76,6 +99,9 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             bits_slack=self.bits_slack,
             lam=self.lam,
             alpha=self.alpha,
+            beta=self.beta,
+            transact_opt=self.transact_opt,
+            x0=x0,
         )
     
     def get_ising_coeffs(
@@ -85,6 +111,33 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
             constant: float
             ):
             return get_ising_coeffs_optimized(Q, L, constant)
+    
+    def compute_num_spins(self,
+                          n_assets: int,
+                          x0: np.ndarray = None
+    ):
+        return compute_num_spins_optimized(
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_slack=self.bits_slack,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
+    
+    def _spins_to_asset_counts(self,
+               spins: np.ndarray,
+               n_assets: int,
+               x0: np.ndarray = None
+    ):
+        return spins_to_asset_counts(
+            spins=spins,
+            n_assets=n_assets,
+            bits_per_asset=self.bits_per_asset,
+            bits_plus=self.bits_plus,
+            bits_minus=self.bits_minus,
+            transact_opt=self.transact_opt,
+            x0=x0
+        )
 
     @property
     def optimizer(self) -> Callable:
@@ -96,7 +149,7 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         self._params_h = ParameterVector("h", num_spins)
         interactions = []
         for i in range(num_spins):
-            for j in range(num_spins):
+            for j in range(i, num_spins):
                 interactions.append((i, j))
         
         self._params_J = ParameterVector("J", len(interactions))
@@ -115,11 +168,6 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         # Trotter Loop
         for step in range(self.steps):
             s = step / self.steps
-            
-            # =========================================================
-            # 2阶 Trotter (Suzuki-Trotter): 
-            # Sequence: [Half X] -> [Full Z] -> [Half X]
-            # =========================================================
 
             # --- [Step A] 前半步横向场 (Half X) ---
             # Angle = -2 * B * (1-s) * (dt / 2)
@@ -137,15 +185,15 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
                 qc.rz(h_params_list[i] * z_coeff, i)
         
             # 2. Quadratic terms (Rzz -> CNOT-Rz-CNOT) - 全矩阵遍历
-            # 这里我们直接遍历 idx，它对应 interactions 列表中的 (i, j)
             for idx, (i, j) in enumerate(interactions):
                 if i == j:
                     continue                
                 # 应用 Rzz
                 angle = J_params_list[idx] * z_coeff
-                qc.cx(i, j)
-                qc.rz(angle, j)
-                qc.cx(i, j)
+                # qc.cx(i, j)
+                # qc.rz(angle, j)
+                # qc.cx(i, j)
+                qc.rzz(angle, i, j)
 
             # --- [Step C] 后半步横向场 (Half X) ---
             qc.rx(rx_angle_half, range(num_spins))
@@ -153,16 +201,15 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         qc.measure_all()
         
         # 3. 编译电路
-        # 使用 level 1 或 2 均可，level 2 会稍微压缩一下相邻的 RX 门
         transpiled_qc = transpile(qc, self.backend, optimization_level=2)
         return transpiled_qc
 
-    def optimize(self, mu, prices, sigma, budget) -> np.ndarray:
+    def optimize(self, mu, prices, sigma, budget, x0, **kwargs) -> np.ndarray:
         n = len(mu)
-        num_spins = n * self.bits_per_asset + self.bits_slack
+        num_spins, self.bits_plus, self.bits_minus = self.compute_num_spins(n, x0)
         
         # 1. 计算 Ising 系数
-        Q, L, constant = self.qubo_factor(n=n, mu=mu, sigma=sigma, prices=prices, n_spins=num_spins, budget=budget)
+        Q, L, constant = self.qubo_factor(n=n, mu=mu, sigma=sigma, prices=prices, n_spins=num_spins, budget=budget, x0=x0)
         h, J, C = self.get_ising_coeffs(Q, L, constant)
         h_scaled, J_scaled, C_scaled = normalize_ising_coeffs(h, J, C)
 
@@ -205,18 +252,9 @@ class QuantumAnnealingOptimizer(BaseOptimizer):
         # 找到最小能量
         min_idx = np.argmin(energies)
         best_spins = spins[min_idx]
-        
-        # 7. 解码
-        asset_counts = []
-        for i in range(n):
-            count = 0
-            for p in range(self.bits_per_asset):
-                idx = i * self.bits_per_asset + p
-                if best_spins[idx] == -1:
-                    count += 2**p
-            asset_counts.append(count)
-        
-        return np.array(asset_counts)
+                
+        return self._spins_to_asset_counts(best_spins, n, x0)
+    
     # def optimize(self,
     #             mu: np.ndarray,
     #             prices: np.ndarray,

@@ -9,6 +9,7 @@ from optimizer.qaoa import QAOAOptimizer
 from optimizer.quantum_annealing import QuantumAnnealingOptimizer
 from optimizer.scip_solver import ScipOptimizer
 from optimizer.tensor_network import TensorNetworkOptimizer
+from optimizer.qaoa_penny import QAOAOptimizerJAX
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -23,8 +24,8 @@ def build_benchmark_config(config: Dict[str, Any]) -> BenchmarkConfig:
 
 def build_optimizers(config: Dict[str, Any]) -> List[BaseOptimizer]:
     problem_cfg = config.get("problem", {})
-    risk_aversion = float(problem_cfg.get("risk_aversion", 0.0))
-    lam = float(problem_cfg.get("lam", risk_aversion))
+    lam = float(problem_cfg.get("lam", 0.3))
+    beta = float(problem_cfg.get("beta", 0.0))
 
     solver_names = config.get("solvers") or config.get("solver")
     if solver_names is None:
@@ -43,7 +44,7 @@ def build_optimizers(config: Dict[str, Any]) -> List[BaseOptimizer]:
         solver_cfg = config.get(solver_name, {})
         if not hasattr(solver_cls, "init"):
             raise ValueError(f"{solver_name} does not provide an init method.")
-        optimizers.append(solver_cls.init(solver_cfg, risk_aversion, lam))
+        optimizers.append(solver_cls.init(solver_cfg, lam, beta))
 
     return optimizers
 
@@ -53,4 +54,5 @@ _SOLVER_CLASSES: Dict[str, Type[BaseOptimizer]] = {
     "qaoa": QAOAOptimizer,
     "tensor_network": TensorNetworkOptimizer,
     "scip": ScipOptimizer,
+    "qaoa_jax": QAOAOptimizerJAX,
 }
